@@ -1,8 +1,8 @@
 <?php
 
-namespace DarkMatter\Includes\Utils\Cache;
+namespace StarCache;
 
-use DarkMatter\Includes\Utils\Error\StarExceptionHandler;
+use StarExceptionHandler;
 use Exception;
 use Memcache;
 use Redis;
