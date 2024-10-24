@@ -242,16 +242,21 @@ class StarCache
         }
     }
 
-    /**
-     * Logs errors using the StarExceptionHandler.
+     /**
+     * Logs errors using either StarExceptionHandler or error_log() if StarExceptionHandler is not available.
      *
-     * @param string $message The error message.
+     * @param string $message The error message to log.
      * @param Exception $e The exception object.
      */
-    private function star_logError(string $message, Exception $e): void
+    private static function star_logError(string $message, Exception $e): void
     {
-        $logger = StarExceptionHandler::star_getInstance();
-        $logger->star_handleException($e);
+        if (class_exists('StarExceptionHandler')) {
+            $logger = StarExceptionHandler::star_getInstance();
+            $logger->star_handleException($e);
+        } else {
+            $errorMessage = "{$message}: {$e->getMessage()}\n{$e->getTraceAsString()}";
+            error_log($errorMessage, 0); // Use error_log for logging when StarExceptionHandler is not available
+        }
     }
 
     /**
