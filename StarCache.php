@@ -53,39 +53,28 @@ class StarCache
     }
 
     /**
-     * Generates a unique cache key based on the table name and optional user ID.
-     *
-     * @param string $table The name of the table.
-     * @param string|null $userId The user ID (optional).
-     * @return string The generated cache key.
-     */
-    public function star_getCacheKey(string $table, string $userId = null): string
-    {
-        return 'star_cache_' . $userId . '_' . $table . '_catalog';
-    }
-
-    /**
      * Generates a cache group based on the table name and user ID.
      *
-     * @param string $table The name of the table.
+     * @param string $reference The name of the reference.
      * @param string|null $userId The user ID (optional).
      * @return string The generated cache group.
      */
-    public function star_getUserGroup(string $table, string $userId = null): string
+    public function star_getUserGroup(string $reference, string $userId = null): string
     {
-        return $userId ? 'user_' . $userId : $table;
+        return $userId ? 'user_' . $userId : $reference;
     }
 
     /**
-     * Flushes and reloads cached data for the specified table and optional user ID.
+     * Flushes and reloads cached data for the specified reference and optional user ID.
      *
-     * @param string $table The name of the table.
+     * @param string $reference The name of the reference.
      * @param string|null $userId The user ID (optional).
      */
-    public function star_flushReloadCachedData(string $table, string $userId = null): void
+    public function star_flushReloadCachedData(string $reference, string $userId = null): void
     {
-        $cacheKey = $this->star_getCacheKey($table, $userId);
-        $userGroup = $this->star_getUserGroup($table, $userId);
+        $locksmith = new StarCacheKey();
+        $cacheKey = $locksmith->star_getCacheKey($reference, $userId);
+        $userGroup = $this->star_getUserGroup($reference, $userId);
 
         try {
             $this->star_deleteCache($cacheKey, $userGroup);
@@ -95,16 +84,17 @@ class StarCache
     }
 
     /**
-     * Retrieves cached data based on the table name and optional user ID.
+     * Retrieves cached data based on the reference name and optional user ID.
      *
-     * @param string $table The name of the table.
+     * @param string $reference The name of the reference.
      * @param string|null $userId The user ID (optional).
      * @return array|false The retrieved cached data or false if not found.
      */
-    public function star_getCachedData(string $table, string $userId = null): array|false
+    public function star_getCachedData(string $reference, string $userId = null): array|false
     {
-        $cacheKey = $this->star_getCacheKey($table, $userId);
-        $userGroup = $this->star_getUserGroup($table, $userId);
+        $locksmith = new StarCacheKey();
+        $cacheKey = $locksmith->star_getCacheKey($reference, $userId);
+        $userGroup = $this->star_getUserGroup($reference, $userId);
 
         try {
             return $this->star_getCache($cacheKey, $userGroup);
@@ -115,18 +105,19 @@ class StarCache
     }
 
     /**
-     * Sets cached data with a specific table, user ID, and static/dynamic flag.
+     * Sets cached data with a specific reference, user ID, and static/dynamic flag.
      *
      * @param array $data The data to cache.
-     * @param string $table The name of the table.
+     * @param string $reference The name of the reference.
      * @param string|null $userId The user ID (optional).
      * @param bool $isStatic Whether to set static (long-term) or dynamic (short-term) cache.
      * @return bool True if the data was successfully cached, false otherwise.
      */
-    public function star_setCachedData(array $data, string $table, string $userId = null, bool $isStatic = false): bool
+    public function star_setCachedData(array $data, string $reference, string $userId = null, bool $isStatic = false): bool
     {
-        $cacheKey = $this->star_getCacheKey($table, $userId);
-        $userGroup = $this->star_getUserGroup($table, $userId);
+        $locksmith = new StarCacheKey();
+        $cacheKey = $locksmith->star_getCacheKey($reference, $userId);
+        $userGroup = $this->star_getUserGroup($reference, $userId);
         $expiration = $isStatic ? self::CACHE_EXPIRATION_STATIC : self::CACHE_EXPIRATION_DYNAMIC;
 
         try {
