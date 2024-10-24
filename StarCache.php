@@ -3,6 +3,7 @@
 namespace StarCache;
 
 use StarExceptionHandler;
+use StarCacheKey;
 use Exception;
 use Memcache;
 use Redis;
