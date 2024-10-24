@@ -2,12 +2,12 @@
 
 ## Introduction
 
-StarCache is a versatile PHP caching library designed to streamline your application's performance by leveraging various caching mechanisms. It offers a unified interface for managing cache operations, regardless of your chosen caching backend.
+StarCache is a versatile PHP/WordPress&reg; caching library designed to streamline your application's performance by leveraging various caching mechanisms including Redis&reg;, Memcache&reg;, and WinCache&reg;. It offers a unified interface for managing cache operations, regardless of your chosen caching backend.
 
 ## Features
 
 - **Dependency Injection:**  The library utilizes dependency injection for cache adapters like Memcache and Redis, allowing you to seamlessly switch between different backends without modifying your core code.
-- **Multiple Cache Adapters:**  StarCache provides support for Memcache, Redis, and WordPress's internal cache, offering flexibility in choosing the optimal solution for your needs.
+- **Multiple Cache Adapters:**  StarCache provides support for Memcache&reg;, Redis&reg;, and WordPress's internal cache, offering flexibility in choosing the optimal solution for your needs.
 - **Unified API:**  The library offers a consistent API for managing cached data, including getting, setting, deleting, and flushing cache entries.
 - **Clear Documentation:**  Comprehensive documentation and docblocks ensure clear understanding of the library's usage and functionality.
 
