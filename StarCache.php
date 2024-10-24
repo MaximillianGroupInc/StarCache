@@ -10,7 +10,7 @@ use Redis;
 /**
  * StarCache Class
  *
- * This class provides a flexible and well-structured approach to managing caching in PHP.
+ * This class provides a flexible and well-structured approach to managing caching in PHP/WordPress.
  * It utilizes dependency injection for cache adapters like Memcache and Redis, allowing for
  * flexibility in choosing the desired caching mechanism. The class also includes
  * methods for managing the cache, such as getting, setting, deleting, and flushing
@@ -59,7 +59,7 @@ class StarCache
      * @param string|null $userId The user ID (optional).
      * @return string The generated cache key.
      */
-    public function getCacheKey(string $table, string $userId = null): string
+    public function star_getCacheKey(string $table, string $userId = null): string
     {
         return 'star_cache_' . $userId . '_' . $table . '_catalog';
     }
@@ -71,7 +71,7 @@ class StarCache
      * @param string|null $userId The user ID (optional).
      * @return string The generated cache group.
      */
-    public function getUserGroup(string $table, string $userId = null): string
+    public function star_getUserGroup(string $table, string $userId = null): string
     {
         return $userId ? 'user_' . $userId : $table;
     }
@@ -82,15 +82,15 @@ class StarCache
      * @param string $table The name of the table.
      * @param string|null $userId The user ID (optional).
      */
-    public function flushReloadCachedData(string $table, string $userId = null): void
+    public function star_flushReloadCachedData(string $table, string $userId = null): void
     {
-        $cacheKey = $this->getCacheKey($table, $userId);
-        $userGroup = $this->getUserGroup($table, $userId);
+        $cacheKey = $this->star_getCacheKey($table, $userId);
+        $userGroup = $this->star_getUserGroup($table, $userId);
 
         try {
-            $this->deleteCache($cacheKey, $userGroup);
+            $this->star_deleteCache($cacheKey, $userGroup);
         } catch (Exception $e) {
-            $this->logError('Error flushing cache', $e);
+            $this->star_logError('Error flushing cache', $e);
         }
     }
 
@@ -101,15 +101,15 @@ class StarCache
      * @param string|null $userId The user ID (optional).
      * @return array|false The retrieved cached data or false if not found.
      */
-    public function getCachedData(string $table, string $userId = null): array|false
+    public function star_getCachedData(string $table, string $userId = null): array|false
     {
-        $cacheKey = $this->getCacheKey($table, $userId);
-        $userGroup = $this->getUserGroup($table, $userId);
+        $cacheKey = $this->star_getCacheKey($table, $userId);
+        $userGroup = $this->star_getUserGroup($table, $userId);
 
         try {
-            return $this->getCache($cacheKey, $userGroup);
+            return $this->star_getCache($cacheKey, $userGroup);
         } catch (Exception $e) {
-            $this->logError('Error getting cached data', $e);
+            $this->star_logError('Error getting cached data', $e);
             return false;
         }
     }
@@ -123,20 +123,20 @@ class StarCache
      * @param bool $isStatic Whether to set static (long-term) or dynamic (short-term) cache.
      * @return bool True if the data was successfully cached, false otherwise.
      */
-    public function setCachedData(array $data, string $table, string $userId = null, bool $isStatic = false): bool
+    public function star_setCachedData(array $data, string $table, string $userId = null, bool $isStatic = false): bool
     {
-        $cacheKey = $this->getCacheKey($table, $userId);
-        $userGroup = $this->getUserGroup($table, $userId);
+        $cacheKey = $this->star_getCacheKey($table, $userId);
+        $userGroup = $this->star_getUserGroup($table, $userId);
         $expiration = $isStatic ? self::CACHE_EXPIRATION_STATIC : self::CACHE_EXPIRATION_DYNAMIC;
 
         try {
-            if (!$this->setCache($cacheKey, $data, $userGroup, $expiration)) {
+            if (!$this->star_setCache($cacheKey, $data, $userGroup, $expiration)) {
                 throw new Exception('Failed to set object cache');
             }
 
             return true;
         } catch (Exception $e) {
-            $this->logError('Error setting cache', $e);
+            $this->star_logError('Error setting cache', $e);
             return false;
         }
     }
@@ -148,7 +148,7 @@ class StarCache
      * @param string|null $userGroup The cache group (optional).
      * @return array|false The retrieved cached data or false if not found.
      */
-    private function getCache(string $cacheKey, string $userGroup = null): array|false
+    private function star_getCache(string $cacheKey, string $userGroup = null): array|false
     {
         try {
             if ($this->cacheAdapterType === 'memcache') {
@@ -171,7 +171,7 @@ class StarCache
 
             return wp_cache_get($cacheKey, $userGroup) ?: get_transient($cacheKey);
         } catch (Exception $e) {
-            $this->logError('Error getting cache', $e);
+            $this->star_logError('Error getting cache', $e);
             return false;
         }
     }
@@ -185,7 +185,7 @@ class StarCache
      * @param int $expiration The expiration time in seconds (default: 3600).
      * @return bool True if the data was successfully cached, false otherwise.
      */
-    private function setCache(string $cacheKey, array $data, string $userGroup, int $expiration = 3600): bool
+    private function star_setCache(string $cacheKey, array $data, string $userGroup, int $expiration = 3600): bool
     {
         try {
             if ($this->cacheAdapterType === 'memcache') {
@@ -206,7 +206,7 @@ class StarCache
 
             return wp_cache_set($cacheKey, $data, $userGroup, $expiration);
         } catch (Exception $e) {
-            $this->logError('Error setting cache', $e);
+            $this->star_logError('Error setting cache', $e);
             return false;
         }
     }
@@ -217,7 +217,7 @@ class StarCache
      * @param string $cacheKey The cache key.
      * @param string $userGroup The cache group.
      */
-    private function deleteCache(string $cacheKey, string $userGroup): void
+    private function star_deleteCache(string $cacheKey, string $userGroup): void
     {
         try {
             if ($this->cacheAdapterType === 'memcache') {
@@ -238,7 +238,7 @@ class StarCache
 
             wp_cache_delete($cacheKey, $userGroup);
         } catch (Exception $e) {
-            $this->logError('Error deleting cache', $e);
+            $this->star_logError('Error deleting cache', $e);
         }
     }
 
@@ -248,7 +248,7 @@ class StarCache
      * @param string $message The error message.
      * @param Exception $e The exception object.
      */
-    private function logError(string $message, Exception $e): void
+    private function star_logError(string $message, Exception $e): void
     {
         $logger = StarExceptionHandler::star_getInstance();
         $logger->star_handleException($e);
@@ -260,7 +260,7 @@ class StarCache
      * @param bool $isStatic Whether to delete transients (false) or not (true).
      * @param string|null $cacheKey The cache key (optional).
      */
-    public function closeConnections(bool $isStatic = false, ?string $cacheKey = null): void
+    public function star_closeConnections(bool $isStatic = false, ?string $cacheKey = null): void
     {
         if ($this->cacheAdapterType === 'memcache' || $this->cacheAdapterType === 'redis') {
             $this->cacheAdapter->close();
