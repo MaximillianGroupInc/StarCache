@@ -1,0 +1,22 @@
+{
+  "name": "maximilliangroupinc/starcache",
+  "description": "A flexible PHP caching library.",
+  "type": "library",
+  "license": "Apache 2.0",
+  "authors": [
+    {
+      "name": "MaximillianGroup (Max Barrett)",
+      "email": "maximilliangroup@gmail.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "StarCache\\": ""
+    }
+  },
+  "require": {
+    "php": "^7.4"
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
