@@ -1,28 +1,53 @@
-<?php 
+<?php
+
 namespace StarCache;
 
-use Respect\Validation\Validator as v;
-
+/**
+ * StarCacheKey
+ *
+ * Generates deterministic, secure, multisite-aware cache keys.
+ *
+ * Keys are built from a namespace, optional user ID, reference string, and a
+ * salt derived from WordPress authentication keys (or a configurable fallback).
+ * The composite is hashed with SHA-256 so keys are always a fixed length and
+ * never expose raw data.
+ *
+ * Multisite: the current blog ID is embedded in the key so each site in a
+ * network receives its own isolated cache namespace without extra configuration.
+ *
+ * @package StarCache
+ * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
+ * @version 2.0.0
+ * @license Apache 2.0
+ */
 class StarCacheKey
 {
-    private string $namespace; // Namespace property
-    private string $salt;      // Salt property
+    /** @var string Namespace prefix for all keys produced by this instance. */
+    private string $namespace;
+
+    /** @var string Salt appended before hashing to prevent key collisions. */
+    private string $salt;
 
     /**
-     * Constructor for the StarCacheKey class.
-     *
-     * @param string $salt The salt to use for generating cache keys.
-     * @param string $namespace The namespace to use for the cache keys.
+     * @param string|null $salt      Custom salt; defaults to AUTH_KEY + SECURE_AUTH_SALT
+     *                               or 'default_salt' when WP constants are absent.
+     * @param string      $namespace Namespace prefix (default: 'star_cache').
      */
-    public function __construct(string $salt = null, string $namespace = 'star_cache')
+    public function __construct(?string $salt = null, string $namespace = 'star_cache')
     {
-        // Use provided salt or fallback to AUTH_KEY and SECURE_AUTH_SALT if they are defined
-        $this->salt = $salt ?? (defined('AUTH_KEY') && defined('SECURE_AUTH_SALT') ? AUTH_KEY . SECURE_AUTH_SALT : 'default_salt');
+        $this->salt = $salt ?? (
+            defined('AUTH_KEY') && defined('SECURE_AUTH_SALT')
+                ? AUTH_KEY . SECURE_AUTH_SALT
+                : 'default_salt'
+        );
         $this->namespace = $namespace;
     }
 
     /**
-     * Hashes the provided key with SHA-256
+     * SHA-256 hash a raw string.
+     *
+     * @param string $key  Raw string to hash.
+     * @return string      64-character hex digest.
      */
     public static function star_hashKey(string $key): string
     {
@@ -30,31 +55,54 @@ class StarCacheKey
     }
 
     /**
-     * Generates a secure cache key by combining the table, userId, and salt.
+     * Generate a secure, multisite-aware cache key.
      *
-     * @param string $table The name of the database table.
-     * @param string|null $userId Optional user ID to personalize the cache key.
-     * @return string The generated, hashed cache key.
+     * The key incorporates:
+     *   - The current blog ID (multisite isolation)
+     *   - The configured namespace
+     *   - An optional user ID (per-user personalisation)
+     *   - The reference/table name
+     *   - The salt (security)
+     *
+     * @param string      $reference  Logical name for the cached data (e.g. table name, feature slug).
+     * @param string|null $userId     Optional user identifier for personalised caches.
+     * @return string                 64-character hex cache key.
      */
-    public function star_getCacheKey(string $table, ?string $userId = null): string
+    public function star_getCacheKey(string $reference, ?string $userId = null): string
     {
-        // Validate table name
-        v::stringType()->assert($table);
-        
-        // If userId is provided, validate it; otherwise, default to an empty string
-        if ($userId !== null) {
-            v::stringType()->assert($userId);
-        } else {
-            $userId = ''; // Default to an empty string if no userId
+        if (!is_string($reference) || $reference === '') {
+            throw new \InvalidArgumentException('StarCacheKey: $reference must be a non-empty string.');
         }
 
-        // Concatenate namespace, userId, table, and salt to create the raw key
-        $rawKey = $this->namespace . '_' . $userId . '_' . $table;
+        $userId = ($userId !== null) ? (string) $userId : '';
 
-        // Hash the key with the salt for security
-        $keyWithSalt = $rawKey . $this->salt; // Use the salt from the class
+        // Include blog ID for multisite isolation
+        $blogId = function_exists('get_current_blog_id') ? (string) get_current_blog_id() : '1';
 
-        // Return the hashed key
+        $rawKey      = $this->namespace . '_' . $blogId . '_' . $userId . '_' . $reference;
+        $keyWithSalt = $rawKey . $this->salt;
+
+        return self::star_hashKey($keyWithSalt);
+    }
+
+    /**
+     * Convenience: generate a network-wide (blog-agnostic) cache key for
+     * data that should be shared across all sites in a multisite network.
+     *
+     * @param string      $reference
+     * @param string|null $userId
+     * @return string  64-character hex cache key.
+     */
+    public function star_getNetworkKey(string $reference, ?string $userId = null): string
+    {
+        if (!is_string($reference) || $reference === '') {
+            throw new \InvalidArgumentException('StarCacheKey: $reference must be a non-empty string.');
+        }
+
+        $userId      = ($userId !== null) ? (string) $userId : '';
+        $rawKey      = $this->namespace . '_network_' . $userId . '_' . $reference;
+        $keyWithSalt = $rawKey . $this->salt;
+
         return self::star_hashKey($keyWithSalt);
     }
 }

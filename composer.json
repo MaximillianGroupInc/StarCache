@@ -1,8 +1,8 @@
 {
   "name": "maximilliangroupinc/starcache",
-  "description": "A flexible PHP caching library.",
-  "type": "library",
-  "license": "Apache 2.0",
+  "description": "Advanced WordPress MU-Plugin caching library: Redis, Memcached, OPcache, Varnish, query caching, asset minification, and multisite support.",
+  "type": "wordpress-muplugin",
+  "license": "Apache-2.0",
   "authors": [
     {
       "name": "MaximillianGroup (Max Barrett)",
@@ -14,8 +14,19 @@
       "StarCache\\": ""
     }
   },
+  "autoload-dev": {
+    "psr-4": {
+      "StarCache\\Tests\\": "tests/"
+    }
+  },
   "require": {
-    "php": "^7.4"
+    "php": "^8.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^10.0"
+  },
+  "scripts": {
+    "test": "phpunit --testdox tests/"
   },
   "minimum-stability": "stable",
   "prefer-stable": true
