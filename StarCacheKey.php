@@ -58,18 +58,29 @@ class StarCacheKey
      * Generate a secure, multisite-aware cache key.
      *
      * The key incorporates:
-     *   - The current blog ID (multisite isolation)
      *   - The configured namespace
+     *   - The current blog ID (multisite isolation)
      *   - An optional user ID (per-user personalisation)
      *   - The reference/table name
+     *   - An optional context hash (device / experiment segment from StarCacheContext)
+     *   - An optional version counter (from StarVersionStore; enables group invalidation)
      *   - The salt (security)
      *
-     * @param string      $reference  Logical name for the cached data (e.g. table name, feature slug).
-     * @param string|null $userId     Optional user identifier for personalised caches.
-     * @return string                 64-character hex cache key.
+     * Callers that do not need context variation or version-based invalidation
+     * can omit the last two parameters and receive a standard site-scoped key.
+     *
+     * @param string      $reference    Logical name for the cached data (e.g. table name, feature slug).
+     * @param string|null $userId       Optional user identifier for personalised caches.
+     * @param string      $contextHash  SHA-256 digest from StarCacheContext::hash() (default: no context).
+     * @param int         $version      Version counter from StarVersionStore::get() (default: 1).
+     * @return string                   64-character hex cache key.
      */
-    public function star_getCacheKey(string $reference, ?string $userId = null): string
-    {
+    public function star_getCacheKey(
+        string $reference,
+        ?string $userId = null,
+        string $contextHash = '',
+        int $version = 1
+    ): string {
         if (!is_string($reference) || $reference === '') {
             throw new \InvalidArgumentException('StarCacheKey: $reference must be a non-empty string.');
         }
@@ -79,10 +90,15 @@ class StarCacheKey
         // Include blog ID for multisite isolation
         $blogId = function_exists('get_current_blog_id') ? (string) get_current_blog_id() : '1';
 
-        $rawKey      = $this->namespace . '_' . $blogId . '_' . $userId . '_' . $reference;
-        $keyWithSalt = $rawKey . $this->salt;
+        // Build raw key: namespace + blog + user + reference + context + version + salt
+        $rawKey = $this->namespace
+            . '_' . $blogId
+            . '_' . $userId
+            . '_' . $reference
+            . ($contextHash !== '' ? '_ctx' . $contextHash : '')
+            . '_v' . $version;
 
-        return self::star_hashKey($keyWithSalt);
+        return self::star_hashKey($rawKey . $this->salt);
     }
 
     /**

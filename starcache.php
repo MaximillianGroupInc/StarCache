@@ -3,9 +3,10 @@
  * Plugin Name:  StarCache
  * Plugin URI:   https://github.com/MaximillianGroupInc/StarCache
  * Description:  Advanced caching MU-Plugin for WordPress. Auto-detects Redis, Memcached, Memcache,
- *               and OPcache; provides full-page caching, partial/fragment caching, Varnish integration,
- *               WP_Query caching, transient optimisation, and CSS/JS minification. Multisite-aware.
- * Version:      2.0.0
+ *               and OPcache; provides context-aware full-page caching, fragment caching, Varnish
+ *               integration, WP_Query caching, transient optimisation, CSS/JS minification, and
+ *               version-based cache invalidation. Multisite-aware.
+ * Version:      2.1.0
  * Author:       MaximillianGroup (Max Barrett)
  * Author URI:   https://github.com/MaximillianGroupInc
  * License:      Apache 2.0
@@ -39,7 +40,7 @@
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.0.0
+ * @version 2.1.0
  * @license Apache 2.0
  */
 
@@ -55,58 +56,77 @@ if (!defined('ABSPATH')) {
 // ---------------------------------------------------------------------------
 $_starCacheDir = __DIR__;
 
-if (!class_exists(__NAMESPACE__ . '\StarCacheKey')) {
-    require_once $_starCacheDir . '/StarCacheKey.php';
+foreach ([
+    'StarCacheKey',
+    'StarCacheAdapter',
+    'StarCacheContext',
+    'StarVersionStore',
+    'StarResponseController',
+    'StarCache',
+    'StarTransientCache',
+    'StarPageCache',
+    'StarQueryCache',
+    'StarAssetMinifier',
+] as $_starCacheClass) {
+    if (!class_exists(__NAMESPACE__ . '\\' . $_starCacheClass)) {
+        require_once $_starCacheDir . '/' . $_starCacheClass . '.php';
+    }
 }
-if (!class_exists(__NAMESPACE__ . '\StarCacheAdapter')) {
-    require_once $_starCacheDir . '/StarCacheAdapter.php';
-}
-if (!class_exists(__NAMESPACE__ . '\StarCache')) {
-    require_once $_starCacheDir . '/StarCache.php';
-}
-if (!class_exists(__NAMESPACE__ . '\StarTransientCache')) {
-    require_once $_starCacheDir . '/StarTransientCache.php';
-}
-if (!class_exists(__NAMESPACE__ . '\StarPageCache')) {
-    require_once $_starCacheDir . '/StarPageCache.php';
-}
-if (!class_exists(__NAMESPACE__ . '\StarQueryCache')) {
-    require_once $_starCacheDir . '/StarQueryCache.php';
-}
-if (!class_exists(__NAMESPACE__ . '\StarAssetMinifier')) {
-    require_once $_starCacheDir . '/StarAssetMinifier.php';
-}
-
-unset($_starCacheDir);
+unset($_starCacheDir, $_starCacheClass);
 
 // ---------------------------------------------------------------------------
-// Bootstrap – initialise the cache adapter as early as possible
+// REQUEST LIFECYCLE – hook ordering matters:
+//
+//   plugins_loaded  0  → resolve context dimensions  (BEFORE any cache lookup)
+//   plugins_loaded  1  → initialise adapter
+//   init            1  → start page-cache output buffering (context already resolved)
+//   wp / send_headers 1 → lock context + apply response headers
+//   save_post / ... → invalidation via version bumps
 // ---------------------------------------------------------------------------
-add_action('plugins_loaded', function () {
-    StarCacheAdapter::init();
+
+// Step 1: Resolve context dimensions FIRST, before any cache key is built
+add_action('plugins_loaded', [StarCacheContext::class, 'resolve'], 0);
+
+// Step 2: Initialise the cache adapter
+add_action('plugins_loaded', [StarCacheAdapter::class, 'init'], 1);
+
+// Step 3: Start page-cache buffering (after context is resolved, before content)
+add_action('init', [StarPageCache::class, 'startPageCache'], 1);
+
+// Step 4: Lock context and apply cache-control headers just before output
+//   'send_headers' fires before wp_head(), after the query is determined.
+//   'wp' fires just before the template is loaded.
+add_action('send_headers', function () {
+    StarCacheContext::lock();
+    StarResponseController::apply();
 }, 1);
 
 // ---------------------------------------------------------------------------
-// Full-page cache
+// Cache invalidation
 // ---------------------------------------------------------------------------
-add_action('init', [StarPageCache::class, 'startPageCache'], 1);
 
-// Purge page cache on post save / status change
+// Version bump (preferred) + Varnish PURGE on post save / status change
 add_action('save_post',              [StarPageCache::class, 'purgeOnSave'],         10, 2);
 add_action('transition_post_status', [StarPageCache::class, 'purgeOnStatusChange'], 10, 3);
 
-// Also purge when a post is trashed or permanently deleted
-add_action('trashed_post',  function (int $postId) {
-    $post = get_post($postId);
+// Also invalidate on trash / permanent delete
+add_action('trashed_post', function (int $postId) {
+    $post = function_exists('get_post') ? get_post($postId) : null;
     if ($post instanceof \WP_Post) {
         StarPageCache::purgeOnSave($postId, $post);
     }
 });
 add_action('before_delete_post', function (int $postId) {
-    $post = get_post($postId);
+    $post = function_exists('get_post') ? get_post($postId) : null;
     if ($post instanceof \WP_Post) {
         StarPageCache::purgeOnSave($postId, $post);
     }
+});
+
+// Also bump query version when post cache is cleaned (covers term / meta updates)
+add_action('clean_post_cache', function (int $postId) {
+    StarQueryCache::invalidatePostCaches($postId);
+    StarVersionStore::bump(StarVersionStore::GROUP_QUERIES);
 });
 
 // ---------------------------------------------------------------------------
@@ -114,32 +134,29 @@ add_action('before_delete_post', function (int $postId) {
 // ---------------------------------------------------------------------------
 add_filter('posts_pre_query', [StarQueryCache::class, 'postsPreQuery'], 10, 2);
 add_filter('the_posts',       [StarQueryCache::class, 'thePosts'],      10, 2);
-add_action('clean_post_cache', function (int $postId) {
-    StarQueryCache::invalidatePostCaches($postId);
-});
 
 // ---------------------------------------------------------------------------
 // Asset minification
 // ---------------------------------------------------------------------------
-add_action('init',            [StarAssetMinifier::class, 'init'],           5);
-add_action('wp_print_styles', [StarAssetMinifier::class, 'processStyles'],  5);
-add_action('wp_print_scripts',[StarAssetMinifier::class, 'processScripts'], 5);
+add_action('init',             [StarAssetMinifier::class, 'init'],           5);
+add_action('wp_print_styles',  [StarAssetMinifier::class, 'processStyles'],  5);
+add_action('wp_print_scripts', [StarAssetMinifier::class, 'processScripts'], 5);
 
 // Flush minified assets whenever a theme or plugin is updated
 add_action('upgrader_process_complete', [StarAssetMinifier::class, 'flushAssets']);
 add_action('switch_theme',              [StarAssetMinifier::class, 'flushAssets']);
 
 // ---------------------------------------------------------------------------
-// Admin bar integration (shows active backend)
+// Admin bar integration (shows active backend + context)
 // ---------------------------------------------------------------------------
 add_action('admin_bar_menu', function (\WP_Admin_Bar $bar) {
     if (!current_user_can('manage_options')) {
         return;
     }
 
-    $backend  = StarCacheAdapter::getBackend();
-    $opcache  = StarCacheAdapter::isOpcacheEnabled() ? ' + OPcache' : '';
-    $label    = 'StarCache: ' . strtoupper($backend) . $opcache;
+    $backend = StarCacheAdapter::getBackend();
+    $opcache = StarCacheAdapter::isOpcacheEnabled() ? ' + OPcache' : '';
+    $label   = 'StarCache: ' . strtoupper($backend) . $opcache;
 
     $bar->add_menu([
         'id'    => 'starcache',
@@ -150,14 +167,22 @@ add_action('admin_bar_menu', function (\WP_Admin_Bar $bar) {
 }, 100);
 
 // ---------------------------------------------------------------------------
-// WP-CLI support: flush all StarCache data
+// WP-CLI support
 // ---------------------------------------------------------------------------
 if (defined('WP_CLI') && WP_CLI) {
     \WP_CLI::add_command('starcache flush', function () {
-        StarCacheAdapter::flush();
+        // Use version bumps instead of global flush to avoid thundering-herd
+        StarVersionStore::bumpAll();
         StarAssetMinifier::flushAssets();
-        StarQueryCache::flushQueryCache();
-        \WP_CLI::success('StarCache flushed.');
+        \WP_CLI::success('StarCache flushed (version bumped).');
+    });
+
+    \WP_CLI::add_command('starcache status', function () {
+        $backend = StarCacheAdapter::getBackend();
+        $opcache = StarCacheAdapter::isOpcacheEnabled() ? 'enabled' : 'disabled';
+        \WP_CLI::line('Backend : ' . $backend);
+        \WP_CLI::line('OPcache : ' . $opcache);
+        \WP_CLI::line('Context : ' . json_encode(StarCacheContext::all()));
     });
 }
 

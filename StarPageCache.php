@@ -10,27 +10,31 @@ use Exception;
  * Provides full-page output-buffer caching and fragment (partial) caching for
  * WordPress, with first-class Varnish integration.
  *
- * Features
- * --------
- * - Full-page HTML caching via PHP output buffering; cached responses are
- *   served from StarCacheAdapter before WordPress fully boots.
- * - Fragment caching: capture, store, and replay chunks of template output.
- * - Varnish integration: sends Cache-Control / X-Cache-Tags headers and
- *   dispatches HTTP PURGE requests on post save / publish.
- * - Bypasses cache for: logged-in users, admins, POST requests, WooCommerce
- *   cart/checkout pages, and when a DONOTCACHEPAGE constant is set.
- * - Multisite-aware: each blog's pages are cached under their own namespace.
+ * Architecture alignment
+ * ----------------------
+ * - Cache eligibility is determined by StarResponseController::isEligible()
+ *   (single gate, no duplicate logic).
+ * - Cache-Control headers are set ONLY by StarResponseController::apply().
+ * - Context (device / experiment) is resolved by StarCacheContext::resolve()
+ *   BEFORE startPageCache() is called.  The context hash is embedded in every
+ *   page and fragment cache key so different context buckets are served
+ *   independently without cache poisoning.
+ * - Invalidation uses StarVersionStore::bump() rather than direct entry
+ *   deletion.  A version bump makes all keys built with the old version
+ *   unreachable; entries expire naturally on their TTL.
+ * - Varnish PURGE requests are still sent for edge-cache invalidation.
+ * - X-Cache-Tags headers are emitted for targeted CDN tag-based purging.
  *
- * Usage (from starcache.php)
- * --------------------------
- *   add_action('init',               [\StarCache\StarPageCache::class, 'startPageCache'], 1);
- *   add_action('wp',                 [\StarCache\StarPageCache::class, 'maybeServeCachedPage'], 1);
- *   add_action('save_post',          [\StarCache\StarPageCache::class, 'purgeOnSave'], 10, 2);
- *   add_action('transition_post_status', [\StarCache\StarPageCache::class, 'purgeOnStatusChange'], 10, 3);
+ * Fragment / partial cache
+ * ------------------------
+ *   if (!\StarCache\StarPageCache::getFragment('sidebar')) {
+ *       get_sidebar();
+ *       \StarCache\StarPageCache::saveFragment('sidebar');
+ *   }
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.0.0
+ * @version 2.1.0
  * @license Apache 2.0
  */
 class StarPageCache
@@ -51,7 +55,7 @@ class StarPageCache
     private const VARNISH_HOST = '127.0.0.1';
     private const VARNISH_PORT = 6081;
 
-    /** @var string|null Key for the page currently being buffered. */
+    /** @var string|null Cache key for the page currently being buffered. */
     private static ?string $currentPageKey = null;
 
     // -------------------------------------------------------------------------
@@ -59,12 +63,14 @@ class StarPageCache
     // -------------------------------------------------------------------------
 
     /**
-     * Start output buffering for pages that should be cached.
-     * Called on the 'init' hook (priority 1).
+     * Start output buffering for pages that are eligible for caching.
+     *
+     * Must be called AFTER StarCacheContext::resolve() has run.
+     * Called on the 'init' hook (priority 1) via starcache.php.
      */
     public static function startPageCache(): void
     {
-        if (self::shouldBypass()) {
+        if (!StarResponseController::isEligible()) {
             return;
         }
 
@@ -73,20 +79,23 @@ class StarPageCache
         // Serve from cache if available
         $cached = StarCacheAdapter::get($key, self::GROUP_PAGE);
         if ($cached !== false && is_array($cached)) {
-            self::sendCachedPage($cached);
+            self::serveCachedPage($cached);
             exit;
         }
 
-        // Begin buffering
+        // Begin buffering so capturePageOutput() is called at shutdown
         self::$currentPageKey = $key;
         ob_start([self::class, 'capturePageOutput']);
     }
 
     /**
-     * Output-buffer callback: stores the captured HTML and emits it.
+     * Output-buffer callback: persist the captured HTML and return it.
      *
-     * @param string $html
-     * @return string
+     * Note: Cache-Control headers are NOT set here – that is StarResponseController's
+     * responsibility, which runs on the 'send_headers' / 'wp' action.
+     *
+     * @param string $html  The complete page HTML.
+     * @return string       The same HTML (unmodified).
      */
     public static function capturePageOutput(string $html): string
     {
@@ -94,28 +103,35 @@ class StarPageCache
             return $html;
         }
 
-        $ttl      = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
-        $headers  = self::collectSafeHeaders();
-        $payload  = ['html' => $html, 'headers' => $headers, 'time' => time()];
+        $ttl     = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
+        $headers = self::collectSafeHeaders();
+        $payload = ['html' => $html, 'headers' => $headers, 'time' => time()];
 
         StarCacheAdapter::set(self::$currentPageKey, $payload, $ttl, self::GROUP_PAGE);
-        self::sendVarnishHeaders();
+
+        // Emit cache-tag header for targeted CDN/Varnish purging
+        self::sendCacheTags();
 
         return $html;
     }
 
     /**
-     * Serve a previously cached full page and set Varnish / Cache-Control headers.
+     * Serve a previously cached page, replaying its safe headers.
      *
-     * @param array $cached
+     * @param array $cached  Payload stored by capturePageOutput().
      */
-    private static function sendCachedPage(array $cached): void
+    private static function serveCachedPage(array $cached): void
     {
         if (!headers_sent()) {
             foreach ($cached['headers'] ?? [] as $header) {
                 header($header);
             }
-            self::sendVarnishHeaders(true);
+            // Response controller applies Cache-Control; tag header goes here
+            StarResponseController::apply();
+            self::sendCacheTags();
+
+            // Override X-Cache to indicate a cache HIT
+            header('X-Cache: HIT');
         }
         echo $cached['html'] ?? '';
     }
@@ -134,8 +150,8 @@ class StarPageCache
      *       StarPageCache::saveFragment('sidebar');
      *   }
      *
-     * @param string $name    Unique fragment identifier.
-     * @param int    $ttl     Time-to-live in seconds.
+     * @param string $name  Unique fragment identifier.
+     * @param int    $ttl   Time-to-live in seconds.
      * @return bool  True if cached content was echoed; false if caller must render.
      */
     public static function getFragment(string $name, int $ttl = self::TTL_FRAG): bool
@@ -148,7 +164,6 @@ class StarPageCache
             return true;
         }
 
-        // Store key + ttl so saveFragment() can pick it up
         ob_start();
         return false;
     }
@@ -172,7 +187,7 @@ class StarPageCache
     }
 
     /**
-     * Invalidate a single cached fragment.
+     * Invalidate a single cached fragment by name.
      *
      * @param string $name
      */
@@ -187,30 +202,46 @@ class StarPageCache
     // -------------------------------------------------------------------------
 
     /**
-     * Purge the cached page for a post when it is saved.
+     * Invalidate page and fragment caches when a post is saved.
+     *
+     * Uses version bumping (preferred) so that all cache entries that embedded
+     * the old content version naturally become unreachable.  Also sends a
+     * targeted Varnish PURGE request for the specific post URL.
      *
      * @param int      $postId
      * @param \WP_Post $post
      */
     public static function purgeOnSave(int $postId, \WP_Post $post): void
     {
-        if (wp_is_post_revision($postId) || wp_is_post_autosave($postId)) {
+        if (
+            (function_exists('wp_is_post_revision')  && wp_is_post_revision($postId)) ||
+            (function_exists('wp_is_post_autosave') && wp_is_post_autosave($postId))
+        ) {
             return;
         }
 
-        $url = get_permalink($postId);
-        if ($url) {
-            self::purgeUrl($url);
-        }
+        // Version bump makes ALL pages/fragments built with the old content
+        // version unreachable – no need to enumerate individual keys.
+        StarVersionStore::bump(StarVersionStore::GROUP_CONTENT);
+        StarVersionStore::bump(StarVersionStore::GROUP_FRAGMENTS);
 
-        // Purge archive / home page as well
-        self::purgeUrl(home_url('/'));
+        // Send Varnish PURGE for the specific URL as well (edge cache)
+        if (self::isVarnishEnabled()) {
+            $url = function_exists('get_permalink') ? get_permalink($postId) : null;
+            if ($url) {
+                self::varnishPurge($url);
+            }
+            $homeUrl = function_exists('home_url') ? home_url('/') : null;
+            if ($homeUrl) {
+                self::varnishPurge($homeUrl);
+            }
+        }
 
         do_action('starcache_after_purge', $postId, $post);
     }
 
     /**
-     * Purge on post status transition (e.g. draft → publish).
+     * Invalidate on post status transition (e.g. draft → publish).
      *
      * @param string   $new
      * @param string   $old
@@ -227,12 +258,18 @@ class StarPageCache
     }
 
     /**
-     * Purge the object-cache entry for a URL and optionally send a Varnish PURGE.
+     * Purge a specific URL from the object cache and Varnish.
+     *
+     * This is kept for backward compatibility and for callers that need
+     * targeted invalidation of a known URL.
      *
      * @param string $url
      */
     public static function purgeUrl(string $url): void
     {
+        // Build the key that would have been used for this URL at the current
+        // version – note this will NOT clear entries built with older versions,
+        // but those will expire naturally.
         $key = self::buildPageKeyFromUrl($url);
         StarCacheAdapter::delete($key, self::GROUP_PAGE);
 
@@ -242,29 +279,45 @@ class StarPageCache
     }
 
     // -------------------------------------------------------------------------
+    // Backward-compatible bypass helper
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns true when the current request must not be served from cache.
+     *
+     * Delegates to StarResponseController::isEligible() so the eligibility
+     * logic lives in exactly one place.
+     */
+    public static function shouldBypass(): bool
+    {
+        return !StarResponseController::isEligible();
+    }
+
+    // -------------------------------------------------------------------------
     // Varnish helpers
     // -------------------------------------------------------------------------
 
     /**
-     * Send Cache-Control and X-Cache-Tags headers for Varnish.
+     * Emit X-Cache-Tags header for targeted CDN / Varnish purging.
      *
-     * @param bool $fromCache  True when serving from cache (adds X-Cache: HIT).
+     * This method only emits informational tag headers – it does NOT set
+     * Cache-Control (that is StarResponseController's job).
      */
-    public static function sendVarnishHeaders(bool $fromCache = false): void
+    public static function sendCacheTags(): void
     {
-        if (headers_sent() || !self::isVarnishEnabled()) {
+        if (headers_sent()) {
             return;
         }
 
-        $ttl = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
-        header('Cache-Control: public, max-age=' . $ttl . ', s-maxage=' . $ttl);
-        header('Vary: Accept-Encoding');
-        header('X-Cache: ' . ($fromCache ? 'HIT' : 'MISS'));
+        if (!function_exists('is_singular') || !function_exists('is_archive')) {
+            return;
+        }
 
-        // Optionally tag the response for targeted purging
         if (is_singular()) {
-            $postId = get_queried_object_id();
-            header('X-Cache-Tags: post-' . $postId);
+            $postId = function_exists('get_queried_object_id') ? get_queried_object_id() : 0;
+            if ($postId) {
+                header('X-Cache-Tags: post-' . (int) $postId);
+            }
         } elseif (is_archive() || is_home() || is_front_page()) {
             header('X-Cache-Tags: archive');
         }
@@ -280,13 +333,13 @@ class StarPageCache
         $host = defined('VARNISH_HOST') ? VARNISH_HOST : self::VARNISH_HOST;
         $port = defined('VARNISH_PORT') ? (int) VARNISH_PORT : self::VARNISH_PORT;
 
-        $parsed = wp_parse_url($url);
-        $path   = ($parsed['path'] ?? '/');
+        $parsed      = wp_parse_url($url);
+        $path        = ($parsed['path'] ?? '/');
+        $requestHost = $parsed['host'] ?? ($_SERVER['HTTP_HOST'] ?? 'localhost');
+
         if (!empty($parsed['query'])) {
             $path .= '?' . $parsed['query'];
         }
-
-        $requestHost = $parsed['host'] ?? ($_SERVER['HTTP_HOST'] ?? 'localhost');
 
         $args = [
             'method'    => 'PURGE',
@@ -304,89 +357,48 @@ class StarPageCache
     }
 
     // -------------------------------------------------------------------------
-    // Bypass detection
-    // -------------------------------------------------------------------------
-
-    /**
-     * Returns true when the current request must not be served from cache.
-     */
-    public static function shouldBypass(): bool
-    {
-        // Honor explicit no-cache flag
-        if (defined('DONOTCACHEPAGE') && DONOTCACHEPAGE) {
-            return true;
-        }
-
-        // POST / PUT / DELETE / HEAD – only GET requests are cached
-        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
-        if ($method !== 'GET') {
-            return true;
-        }
-
-        // Logged-in users always get fresh responses
-        if (is_user_logged_in()) {
-            return true;
-        }
-
-        // WordPress admin area
-        if (is_admin()) {
-            return true;
-        }
-
-        // AJAX requests
-        if (defined('DOING_AJAX') && DOING_AJAX) {
-            return true;
-        }
-
-        // WP-CLI
-        if (defined('WP_CLI') && WP_CLI) {
-            return true;
-        }
-
-        // WooCommerce dynamic pages
-        if (function_exists('is_woocommerce')) {
-            if (is_cart() || is_checkout() || is_account_page()) {
-                return true;
-            }
-        }
-
-        // Allow plugins / themes to opt out
-        return (bool) apply_filters('starcache_bypass_page_cache', false);
-    }
-
-    // -------------------------------------------------------------------------
     // Key construction
     // -------------------------------------------------------------------------
 
     /**
-     * Build the cache key for the current request URL.
+     * Build the context-aware, versioned cache key for the current request URL.
      */
     private static function buildPageKey(): string
     {
-        $url = self::currentUrl();
-        return self::buildPageKeyFromUrl($url);
+        return self::buildPageKeyFromUrl(self::currentUrl());
     }
 
     /**
-     * Build the cache key for a given URL.
+     * Build the context-aware, versioned cache key for a given URL.
+     *
+     * Key = SC_prefix + blogId + md5(url + contextHash + 'v' + version)
+     *
+     * Using md5 here for brevity; the context hash from StarCacheContext is
+     * itself a SHA-256 digest so the combined key has strong collision resistance.
      *
      * @param string $url
      */
     private static function buildPageKeyFromUrl(string $url): string
     {
-        $blogId = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
-        return 'sc_page_' . $blogId . '_' . md5($url);
+        $blogId      = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
+        $contextHash = StarCacheContext::hash();
+        $version     = StarVersionStore::get(StarVersionStore::GROUP_CONTENT);
+
+        return 'sc_page_' . $blogId . '_' . md5($url . $contextHash . 'v' . $version);
     }
 
     /**
-     * Build the cache key for a named fragment.
+     * Build the context-aware, versioned cache key for a named fragment.
      *
      * @param string $name
      */
     private static function buildFragmentKey(string $name): string
     {
-        $blogId = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
-        return 'sc_frag_' . $blogId . '_' . md5($name);
+        $blogId      = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
+        $contextHash = StarCacheContext::hash();
+        $version     = StarVersionStore::get(StarVersionStore::GROUP_FRAGMENTS);
+
+        return 'sc_frag_' . $blogId . '_' . md5($name . $contextHash . 'v' . $version);
     }
 
     // -------------------------------------------------------------------------
@@ -398,19 +410,14 @@ class StarPageCache
      */
     private static function currentUrl(): string
     {
-        if (function_exists('home_url')) {
-            $scheme = (is_ssl() ? 'https' : 'http');
-            $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-            $uri    = $_SERVER['REQUEST_URI'] ?? '/';
-            return $scheme . '://' . $host . $uri;
-        }
-        return (isset($_SERVER['HTTPS']) ? 'https' : 'http')
-            . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
-            . ($_SERVER['REQUEST_URI'] ?? '/');
+        $scheme = (function_exists('is_ssl') && is_ssl()) ? 'https' : 'http';
+        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $uri    = $_SERVER['REQUEST_URI'] ?? '/';
+        return $scheme . '://' . $host . $uri;
     }
 
     /**
-     * Collect headers that are safe to replay from cache (skip set-cookie, etc.).
+     * Collect headers that are safe to replay from cache (skip Set-Cookie, etc.).
      *
      * @return string[]
      */
@@ -420,7 +427,7 @@ class StarPageCache
             return [];
         }
 
-        $skip = ['set-cookie', 'x-cache', 'x-cache-tags'];
+        $skip = ['set-cookie', 'x-cache', 'x-cache-tags', 'x-cache-context', 'cache-control'];
         $safe = [];
 
         foreach (headers_list() as $header) {

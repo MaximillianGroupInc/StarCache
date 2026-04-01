@@ -244,6 +244,27 @@ if (!class_exists('WP_Error')) {
     }
 }
 
+if (!function_exists('sanitize_key')) {
+    function sanitize_key(string $key): string
+    {
+        return preg_replace('/[^a-z0-9_\-]/', '', strtolower($key));
+    }
+}
+
+if (!function_exists('current_user_can')) {
+    function current_user_can(string $capability): bool
+    {
+        return false;
+    }
+}
+
+if (!function_exists('admin_url')) {
+    function admin_url(string $path = ''): string
+    {
+        return 'http://localhost/wp-admin/' . ltrim($path, '/');
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Autoloader
 // ---------------------------------------------------------------------------
