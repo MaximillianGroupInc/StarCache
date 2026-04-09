@@ -1,59 +1,59 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StarCache;
 
 /**
  * StarVersionStore — Version-based cache invalidation
  *
- * Instead of flushing or directly deleting cache entries, this class
- * maintains a monotonically-increasing integer version counter for named
- * groups.  When a version is bumped the counter increments, which causes
- * all subsequent cache-key lookups (which embed the version) to miss
- * automatically.  Stale entries are left to expire on their own TTL.
+ * Maintains monotonically-increasing integer version counters for named groups.
+ * When a version is bumped the counter increments, which causes all subsequent
+ * cache-key lookups (which embed the version) to miss automatically.
+ * Stale entries expire naturally on their own TTL — no flush required.
  *
- * This avoids the thundering-herd problem associated with global flushes
- * and is consistent with how WordPress VIP handles cache invalidation
- * without relying on `wp_cache_flush()`.
+ * This avoids the thundering-herd problem caused by global cache flushes and
+ * is consistent with how WordPress VIP handles cache invalidation without
+ * relying on `wp_cache_flush()`.
  *
  * Built-in groups
  * ---------------
- *   'content'   — bumped when any post is saved/published/deleted
- *   'fragments' — bumped when a global fragment refresh is needed
- *   'queries'   — bumped when query caches should be globally invalidated
+ *   GROUP_PAGES   — full-page cache entries (bumped on save_post / status change)
+ *   GROUP_QUERIES — WP_Query results       (bumped on clean_post_cache)
+ *   GROUP_OBJECTS — arbitrary object cache (bumped for fragment / data cache)
  *
- * Custom groups can be created by calling get() / bump() with any string.
- *
- * Usage
- * -----
- *   // Embed version in a cache key:
- *   $version = StarVersionStore::get('content');
- *   $key = 'my_key_v' . $version;
- *
- *   // Invalidate all entries that used the old version:
- *   StarVersionStore::bump('content');
+ * WP-CLI integration
+ * ------------------
+ *   wp starcache flush  → bumps all groups (NOT a global flush)
+ *   wp starcache status → shows backend + context
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.1.0
+ * @version 2.1.1
  * @license Apache 2.0
  */
 class StarVersionStore
 {
     // -------------------------------------------------------------------------
-    // Built-in group name constants
+    // Group name constants
     // -------------------------------------------------------------------------
 
-    public const GROUP_CONTENT   = 'content';
-    public const GROUP_FRAGMENTS = 'fragments';
-    public const GROUP_QUERIES   = 'queries';
+    /** Full-page cache version group. */
+    public const GROUP_PAGES   = 'pages';
+
+    /** WP_Query / SQL result cache version group. */
+    public const GROUP_QUERIES = 'queries';
+
+    /** Arbitrary object / fragment cache version group. */
+    public const GROUP_OBJECTS = 'objects';
 
     // -------------------------------------------------------------------------
     // Internal
     // -------------------------------------------------------------------------
 
-    private const KEY_PREFIX   = 'sc_ver_';
-    private const CACHE_GROUP  = 'starcache_version';
-    private const INITIAL_VER  = 1;
+    private const KEY_PREFIX  = 'sc_ver_';
+    private const CACHE_GROUP = 'starcache_version';
+    private const INITIAL_VER = 1;
 
     // -------------------------------------------------------------------------
     // Public API
@@ -62,7 +62,7 @@ class StarVersionStore
     /**
      * Return the current version number for a named group.
      *
-     * @param  string $group  Logical group name.
+     * @param  string $group  Logical group name (use GROUP_* constants).
      * @return int            Version number (≥ 1).
      */
     public static function get(string $group): int
@@ -103,13 +103,13 @@ class StarVersionStore
 
     /**
      * Bump all built-in groups at once.
-     * Used by WP-CLI's `wp starcache flush` command.
+     * Called by WP-CLI `wp starcache flush` — NOT a global cache flush.
      */
     public static function bumpAll(): void
     {
-        self::bump(self::GROUP_CONTENT);
-        self::bump(self::GROUP_FRAGMENTS);
+        self::bump(self::GROUP_PAGES);
         self::bump(self::GROUP_QUERIES);
+        self::bump(self::GROUP_OBJECTS);
     }
 
     // -------------------------------------------------------------------------
@@ -120,9 +120,6 @@ class StarVersionStore
      * Build the raw (non-hashed) storage key for a version counter.
      *
      * Keys are scoped to the current blog ID for multisite isolation.
-     *
-     * @param  string $group
-     * @return string
      */
     private static function buildKey(string $group): string
     {

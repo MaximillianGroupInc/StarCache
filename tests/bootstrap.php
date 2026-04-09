@@ -1,6 +1,9 @@
 <?php
+
+declare(strict_types=1);
+
 /**
- * PHPUnit bootstrap – WordPress function stubs
+ * PHPUnit bootstrap — WordPress function stubs
  *
  * Provides the minimal set of WordPress functions / constants needed by
  * StarCache classes so the test suite can run outside a full WP environment.

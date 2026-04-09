@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StarCache;
 
 use Exception;
@@ -220,10 +222,10 @@ class StarPageCache
             return;
         }
 
-        // Version bump makes ALL pages/fragments built with the old content
-        // version unreachable – no need to enumerate individual keys.
-        StarVersionStore::bump(StarVersionStore::GROUP_CONTENT);
-        StarVersionStore::bump(StarVersionStore::GROUP_FRAGMENTS);
+        // Version bump makes ALL pages/fragments built with the old version
+        // unreachable – no need to enumerate individual keys.
+        StarVersionStore::bump(StarVersionStore::GROUP_PAGES);
+        StarVersionStore::bump(StarVersionStore::GROUP_OBJECTS);
 
         // Send Varnish PURGE for the specific URL as well (edge cache)
         if (self::isVarnishEnabled()) {
@@ -370,21 +372,14 @@ class StarPageCache
 
     /**
      * Build the context-aware, versioned cache key for a given URL.
-     *
-     * Key = SC_prefix + blogId + md5(url + contextHash + 'v' + version)
-     *
-     * Using md5 here for brevity; the context hash from StarCacheContext is
-     * itself a SHA-256 digest so the combined key has strong collision resistance.
+     * Uses StarCacheKey::build() so that context and version are automatically
+     * included and all key construction rules are applied consistently.
      *
      * @param string $url
      */
     private static function buildPageKeyFromUrl(string $url): string
     {
-        $blogId      = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
-        $contextHash = StarCacheContext::hash();
-        $version     = StarVersionStore::get(StarVersionStore::GROUP_CONTENT);
-
-        return 'sc_page_' . $blogId . '_' . md5($url . $contextHash . 'v' . $version);
+        return StarCacheKey::build('page|' . $url, null, StarVersionStore::GROUP_PAGES);
     }
 
     /**
@@ -394,11 +389,7 @@ class StarPageCache
      */
     private static function buildFragmentKey(string $name): string
     {
-        $blogId      = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
-        $contextHash = StarCacheContext::hash();
-        $version     = StarVersionStore::get(StarVersionStore::GROUP_FRAGMENTS);
-
-        return 'sc_frag_' . $blogId . '_' . md5($name . $contextHash . 'v' . $version);
+        return StarCacheKey::build('fragment|' . $name, null, StarVersionStore::GROUP_OBJECTS);
     }
 
     // -------------------------------------------------------------------------

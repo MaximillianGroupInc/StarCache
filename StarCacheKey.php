@@ -1,27 +1,60 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StarCache;
 
 /**
- * StarCacheKey
+ * StarCacheKey — Key Builder
  *
- * Generates deterministic, secure, multisite-aware cache keys.
+ * Constructs deterministic, collision-resistant, multisite-aware cache keys.
  *
- * Keys are built from a namespace, optional user ID, reference string, and a
- * salt derived from WordPress authentication keys (or a configurable fallback).
- * The composite is hashed with SHA-256 so keys are always a fixed length and
- * never expose raw data.
+ * Every key is a SHA-256 digest of the concatenation of well-defined segments.
+ * SHA-256 is used so that raw key length (which can be substantial when context
+ * hashes and version strings are included) never exceeds backend limits
+ * (Memcached: 250 bytes; Redis: effectively unlimited but consistency matters).
  *
- * Multisite: the current blog ID is embedded in the key so each site in a
- * network receives its own isolated cache namespace without extra configuration.
+ * Key segments (in order)
+ * -----------------------
+ *   namespace  — 'starcache' prefix
+ *   blog       — get_current_blog_id() for multisite isolation
+ *   user       — optional caller-supplied user identifier
+ *   reference  — caller-supplied identifier (≤ 250 chars enforced)
+ *   context    — StarCacheContext::hash() (device / experiment bucket)
+ *   version    — StarVersionStore::get($group) (logical invalidation)
+ *   salt       — AUTH_KEY + SECURE_AUTH_SALT (prevents key guessing)
+ *
+ * Static API (preferred)
+ * ----------------------
+ *   $key = StarCacheKey::build('my_reference');
+ *   $key = StarCacheKey::build('my_reference', $userId, StarVersionStore::GROUP_PAGES);
+ *
+ * Instance API (backward-compatible)
+ * -----------------------------------
+ *   $keyBuilder = new StarCacheKey($salt, $namespace);
+ *   $key        = $keyBuilder->star_getCacheKey($reference, $userId);
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.0.0
+ * @version 2.1.1
  * @license Apache 2.0
  */
 class StarCacheKey
 {
+    // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
+
+    /** Default namespace embedded in every key. */
+    public const DEFAULT_NAMESPACE = 'starcache';
+
+    /** Maximum allowed length for the $reference argument. */
+    public const MAX_REFERENCE_LENGTH = 250;
+
+    // -------------------------------------------------------------------------
+    // Instance state (used by the backward-compatible instance API)
+    // -------------------------------------------------------------------------
+
     /** @var string Namespace prefix for all keys produced by this instance. */
     private string $namespace;
 
@@ -31,49 +64,176 @@ class StarCacheKey
     /**
      * @param string|null $salt      Custom salt; defaults to AUTH_KEY + SECURE_AUTH_SALT
      *                               or 'default_salt' when WP constants are absent.
-     * @param string      $namespace Namespace prefix (default: 'star_cache').
+     * @param string      $namespace Namespace prefix (default: 'starcache').
      */
-    public function __construct(?string $salt = null, string $namespace = 'star_cache')
+    public function __construct(?string $salt = null, string $namespace = self::DEFAULT_NAMESPACE)
     {
-        $this->salt = $salt ?? (
-            defined('AUTH_KEY') && defined('SECURE_AUTH_SALT')
-                ? AUTH_KEY . SECURE_AUTH_SALT
-                : 'default_salt'
-        );
+        $this->salt      = $salt ?? self::resolveSalt();
         $this->namespace = $namespace;
     }
+
+    // =========================================================================
+    // Static API (primary — preferred by all internal components)
+    // =========================================================================
+
+    /**
+     * Build a fully-qualified, context-aware, versioned cache key.
+     *
+     * Segments are assembled in order and hashed with SHA-256:
+     *
+     *   namespace | blog | user | reference | ctx:{contextHash} | v:{version} | salt
+     *
+     * @param  string      $reference    Logical identifier for the cached data. Max 250 chars.
+     * @param  string|null $userId       Optional user identifier for user-scoped keys.
+     * @param  string      $versionGroup Version group from StarVersionStore (e.g. GROUP_PAGES).
+     *                                   Defaults to GROUP_OBJECTS for the data-API layer.
+     * @return string 64-character hex SHA-256 digest.
+     *
+     * @throws \InvalidArgumentException If $reference is empty or exceeds MAX_REFERENCE_LENGTH.
+     */
+    public static function build(
+        string $reference,
+        ?string $userId = null,
+        string $versionGroup = StarVersionStore::GROUP_OBJECTS
+    ): string {
+        self::guardReference($reference);
+
+        $segments = [
+            self::namespaceSegment(),
+            self::blogSegment(),
+            self::userSegment($userId),
+            self::referenceSegment($reference),
+            self::contextSegment(),
+            self::versionSegment($versionGroup),
+            self::saltSegment(),
+        ];
+
+        return hash('sha256', implode('|', $segments));
+    }
+
+    // =========================================================================
+    // Private segment methods
+    // =========================================================================
+
+    private static function namespaceSegment(): string
+    {
+        return self::DEFAULT_NAMESPACE;
+    }
+
+    private static function blogSegment(): string
+    {
+        return (string) (function_exists('get_current_blog_id') ? get_current_blog_id() : 1);
+    }
+
+    private static function userSegment(?string $userId): string
+    {
+        return $userId !== null ? 'u:' . $userId : 'u:anon';
+    }
+
+    private static function referenceSegment(string $reference): string
+    {
+        self::guardReference($reference);
+        return 'ref:' . $reference;
+    }
+
+    /**
+     * Returns the context hash from StarCacheContext.
+     * Empty string when context has not been resolved yet (e.g. in tests).
+     */
+    private static function contextSegment(): string
+    {
+        if (!class_exists(StarCacheContext::class)) {
+            return 'ctx:';
+        }
+        return 'ctx:' . StarCacheContext::hash();
+    }
+
+    /**
+     * Returns the version token from StarVersionStore for the given group.
+     * Includes the group name so keys for different groups are distinct even
+     * when both groups are at the same version number (e.g. version 1).
+     */
+    private static function versionSegment(string $group): string
+    {
+        if (!class_exists(StarVersionStore::class)) {
+            return 'v:' . $group . ':1';
+        }
+        return 'v:' . $group . ':' . StarVersionStore::get($group);
+    }
+
+    private static function saltSegment(): string
+    {
+        return self::resolveSalt();
+    }
+
+    // =========================================================================
+    // Guards and helpers
+    // =========================================================================
+
+    /**
+     * Throw if $reference is empty or exceeds MAX_REFERENCE_LENGTH.
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function guardReference(string $reference): void
+    {
+        if ($reference === '') {
+            throw new \InvalidArgumentException('StarCacheKey: $reference must be a non-empty string.');
+        }
+        if (strlen($reference) > self::MAX_REFERENCE_LENGTH) {
+            throw new \InvalidArgumentException(sprintf(
+                'StarCacheKey: $reference exceeds maximum length of %d characters.',
+                self::MAX_REFERENCE_LENGTH
+            ));
+        }
+    }
+
+    /**
+     * Resolve the salt from WordPress constants, falling back to 'default_salt'.
+     */
+    private static function resolveSalt(): string
+    {
+        if (defined('AUTH_KEY') && defined('SECURE_AUTH_SALT')) {
+            return AUTH_KEY . SECURE_AUTH_SALT;
+        }
+        return 'default_salt';
+    }
+
+    // =========================================================================
+    // Static utility
+    // =========================================================================
 
     /**
      * SHA-256 hash a raw string.
      *
-     * @param string $key  Raw string to hash.
-     * @return string      64-character hex digest.
+     * @param  string $key Raw string to hash.
+     * @return string 64-character hex digest.
      */
     public static function star_hashKey(string $key): string
     {
         return hash('sha256', $key);
     }
 
+    // =========================================================================
+    // Instance API (backward-compatible — delegates to static build())
+    // =========================================================================
+
     /**
      * Generate a secure, multisite-aware cache key.
      *
-     * The key incorporates:
-     *   - The configured namespace
-     *   - The current blog ID (multisite isolation)
-     *   - An optional user ID (per-user personalisation)
-     *   - The reference/table name
-     *   - An optional context hash (device / experiment segment from StarCacheContext)
-     *   - An optional version counter (from StarVersionStore; enables group invalidation)
-     *   - The salt (security)
+     * Delegates to the static build() method. The $contextHash and $version
+     * parameters are ignored — context and version are now resolved
+     * automatically by StarCacheContext and StarVersionStore respectively.
+     * Passing non-default values for these parameters has no effect and will
+     * trigger a deprecation notice to help callers migrate.
      *
-     * Callers that do not need context variation or version-based invalidation
-     * can omit the last two parameters and receive a standard site-scoped key.
+     * @deprecated Use StarCacheKey::build() directly.
      *
-     * @param string      $reference    Logical name for the cached data (e.g. table name, feature slug).
-     * @param string|null $userId       Optional user identifier for personalised caches.
-     * @param string      $contextHash  SHA-256 digest from StarCacheContext::hash() (default: no context).
-     * @param int         $version      Version counter from StarVersionStore::get() (default: 1).
-     * @return string                   64-character hex cache key.
+     * @param string      $reference
+     * @param string|null $userId
+     * @param string      $contextHash  Ignored. Context is read from StarCacheContext.
+     * @param int         $version      Ignored. Version is read from StarVersionStore.
+     * @return string 64-character hex cache key.
      */
     public function star_getCacheKey(
         string $reference,
@@ -81,24 +241,14 @@ class StarCacheKey
         string $contextHash = '',
         int $version = 1
     ): string {
-        if (!is_string($reference) || $reference === '') {
-            throw new \InvalidArgumentException('StarCacheKey: $reference must be a non-empty string.');
+        if ($contextHash !== '' || $version !== 1) {
+            trigger_error(
+                'StarCacheKey::star_getCacheKey() $contextHash and $version parameters are ignored. '
+                . 'Use StarCacheKey::build() with a $versionGroup argument instead.',
+                \E_USER_DEPRECATED
+            );
         }
-
-        $userId = ($userId !== null) ? (string) $userId : '';
-
-        // Include blog ID for multisite isolation
-        $blogId = function_exists('get_current_blog_id') ? (string) get_current_blog_id() : '1';
-
-        // Build raw key: namespace + blog + user + reference + context + version + salt
-        $rawKey = $this->namespace
-            . '_' . $blogId
-            . '_' . $userId
-            . '_' . $reference
-            . ($contextHash !== '' ? '_ctx' . $contextHash : '')
-            . '_v' . $version;
-
-        return self::star_hashKey($rawKey . $this->salt);
+        return self::build($reference, $userId);
     }
 
     /**
@@ -107,18 +257,23 @@ class StarCacheKey
      *
      * @param string      $reference
      * @param string|null $userId
-     * @return string  64-character hex cache key.
+     * @return string 64-character hex cache key.
      */
     public function star_getNetworkKey(string $reference, ?string $userId = null): string
     {
-        if (!is_string($reference) || $reference === '') {
+        if ($reference === '') {
             throw new \InvalidArgumentException('StarCacheKey: $reference must be a non-empty string.');
         }
 
-        $userId      = ($userId !== null) ? (string) $userId : '';
-        $rawKey      = $this->namespace . '_network_' . $userId . '_' . $reference;
-        $keyWithSalt = $rawKey . $this->salt;
+        $segments = [
+            self::DEFAULT_NAMESPACE . ':network',
+            self::userSegment($userId),
+            self::referenceSegment($reference),
+            self::contextSegment(),
+            self::versionSegment(StarVersionStore::GROUP_OBJECTS),
+            self::saltSegment(),
+        ];
 
-        return self::star_hashKey($keyWithSalt);
+        return hash('sha256', implode('|', $segments));
     }
 }

@@ -1,45 +1,46 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StarCache\Tests;
 
 use PHPUnit\Framework\TestCase;
 use StarCache\StarCacheKey;
 use StarCache\StarCache;
-use StarCache\StarTransientCache;
 use StarCache\StarAssetMinifier;
 use StarCache\StarPageCache;
-use StarCache\StarQueryCache;
 use StarCache\StarCacheContext;
 use StarCache\StarResponseController;
 use StarCache\StarVersionStore;
 
 /**
- * StarCache Test Suite
+ * StarCache v2.1.1 Test Suite
  *
- * These tests cover the core logic that can be exercised without a live
- * WordPress or cache-server environment:
+ * These tests cover the core logic exercisable without a live WordPress or
+ * cache-server environment:
  *
- * - StarCacheKey: key generation, multisite isolation, network keys, context/version params
- * - StarCache: public API delegating to a stubbed adapter
- * - StarAssetMinifier: CSS and JS minification logic
+ * - StarCacheKey: static build(), segment methods, reference length guard
+ * - StarCache: public API
+ * - StarAssetMinifier: CSS and JS minification
  * - StarPageCache: bypass detection (delegates to StarResponseController)
- * - StarCacheContext: context resolution, locking, hash stability
+ * - StarCacheContext: registration, resolution, constraints, locking, hash
  * - StarResponseController: eligibility checks
- * - StarVersionStore: version get/bump/reset
+ * - StarVersionStore: version get/bump/reset with renamed groups
  */
 class UnitTests extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        // Reset context and response controller state between tests
         StarCacheContext::reset();
         StarResponseController::reset();
+        $_SERVER['REQUEST_METHOD']  = 'GET';
+        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
     }
 
-    // -------------------------------------------------------------------------
-    // StarCacheKey
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // StarCacheKey — static build()
+    // =========================================================================
 
     public function testHashKeyReturnsSha256(): void
     {
@@ -48,12 +49,64 @@ class UnitTests extends TestCase
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $hash);
     }
 
+    public function testBuildIsDeterministic(): void
+    {
+        $a = StarCacheKey::build('my_reference');
+        $b = StarCacheKey::build('my_reference');
+        $this->assertSame($a, $b);
+    }
+
+    public function testBuildVariesByReference(): void
+    {
+        $this->assertNotSame(StarCacheKey::build('users'), StarCacheKey::build('posts'));
+    }
+
+    public function testBuildVariesByUser(): void
+    {
+        $this->assertNotSame(
+            StarCacheKey::build('profile', 'user1'),
+            StarCacheKey::build('profile', 'user2')
+        );
+    }
+
+    public function testBuildWithoutUserEqualsNullUser(): void
+    {
+        $this->assertSame(StarCacheKey::build('data'), StarCacheKey::build('data', null));
+    }
+
+    public function testBuildVariesByVersionGroup(): void
+    {
+        $a = StarCacheKey::build('ref', null, StarVersionStore::GROUP_PAGES);
+        $b = StarCacheKey::build('ref', null, StarVersionStore::GROUP_OBJECTS);
+        $this->assertNotSame($a, $b);
+    }
+
+    public function testBuildThrowsOnEmptyReference(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        StarCacheKey::build('');
+    }
+
+    public function testBuildThrowsOnTooLongReference(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        StarCacheKey::build(str_repeat('x', StarCacheKey::MAX_REFERENCE_LENGTH + 1));
+    }
+
+    public function testBuildAtMaxReferenceLengthDoesNotThrow(): void
+    {
+        $key = StarCacheKey::build(str_repeat('x', StarCacheKey::MAX_REFERENCE_LENGTH));
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $key);
+    }
+
+    // =========================================================================
+    // StarCacheKey — backward-compatible instance API
+    // =========================================================================
+
     public function testGetCacheKeyIsDeterministic(): void
     {
         $key = new StarCacheKey('testsalt', 'ns');
-        $a   = $key->star_getCacheKey('users', 'user1');
-        $b   = $key->star_getCacheKey('users', 'user1');
-        $this->assertSame($a, $b);
+        $this->assertSame($key->star_getCacheKey('users', 'user1'), $key->star_getCacheKey('users', 'user1'));
     }
 
     public function testGetCacheKeyVariesByReference(): void
@@ -71,7 +124,7 @@ class UnitTests extends TestCase
         );
     }
 
-    public function testGetCacheKeyWithoutUserId(): void
+    public function testGetCacheKeyWithoutUserIdIsStable(): void
     {
         $key = new StarCacheKey('testsalt', 'ns');
         $this->assertSame($key->star_getCacheKey('data'), $key->star_getCacheKey('data', null));
@@ -97,38 +150,13 @@ class UnitTests extends TestCase
 
     public function testDefaultSaltFallback(): void
     {
-        $key    = new StarCacheKey();
-        $result = $key->star_getCacheKey('test');
+        $result = (new StarCacheKey())->star_getCacheKey('test');
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $result);
     }
 
-    public function testKeyVariesByContextHash(): void
-    {
-        $key = new StarCacheKey('salt', 'ns');
-        $a   = $key->star_getCacheKey('page', null, 'contexthashA', 1);
-        $b   = $key->star_getCacheKey('page', null, 'contexthashB', 1);
-        $this->assertNotSame($a, $b, 'Different context hashes must produce different keys.');
-    }
-
-    public function testKeyVariesByVersion(): void
-    {
-        $key = new StarCacheKey('salt', 'ns');
-        $v1  = $key->star_getCacheKey('page', null, '', 1);
-        $v2  = $key->star_getCacheKey('page', null, '', 2);
-        $this->assertNotSame($v1, $v2, 'Different versions must produce different keys.');
-    }
-
-    public function testKeyWithContextAndVersionIsDeterministic(): void
-    {
-        $key = new StarCacheKey('salt', 'ns');
-        $a   = $key->star_getCacheKey('page', null, 'ctxhash', 3);
-        $b   = $key->star_getCacheKey('page', null, 'ctxhash', 3);
-        $this->assertSame($a, $b);
-    }
-
-    // -------------------------------------------------------------------------
-    // StarCacheContext
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // StarCacheContext — registration + constraints
+    // =========================================================================
 
     public function testContextResolvesAuth(): void
     {
@@ -140,15 +168,13 @@ class UnitTests extends TestCase
         ]);
     }
 
-    public function testContextResolvesDevice(): void
+    public function testContextResolvesDesktopDevice(): void
     {
-        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120';
         StarCacheContext::resolve();
-        $device = StarCacheContext::get(StarCacheContext::DIM_DEVICE);
-        $this->assertSame(StarCacheContext::DEVICE_DESKTOP, $device);
+        $this->assertSame(StarCacheContext::DEVICE_DESKTOP, StarCacheContext::get(StarCacheContext::DIM_DEVICE));
     }
 
-    public function testContextDetectsMobile(): void
+    public function testContextDetectsMobileUA(): void
     {
         StarCacheContext::reset();
         $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17)';
@@ -159,48 +185,31 @@ class UnitTests extends TestCase
     public function testContextHashIsStable(): void
     {
         StarCacheContext::resolve();
-        $h1 = StarCacheContext::hash();
-        $h2 = StarCacheContext::hash();
-        $this->assertSame($h1, $h2);
+        $this->assertSame(StarCacheContext::hash(), StarCacheContext::hash());
     }
 
-    public function testContextHashExcludesAuthDimension(): void
+    public function testContextHashExcludesAuth(): void
     {
-        // Create two contexts identical except for auth dimension
         StarCacheContext::reset();
         StarCacheContext::set(StarCacheContext::DIM_AUTH, StarCacheContext::AUTH_ANONYMOUS);
         StarCacheContext::set(StarCacheContext::DIM_DEVICE, StarCacheContext::DEVICE_DESKTOP);
-        StarCacheContext::set(StarCacheContext::DIM_EXPERIMENT, '');
         $hashAnon = StarCacheContext::hash();
 
         StarCacheContext::reset();
         StarCacheContext::set(StarCacheContext::DIM_AUTH, StarCacheContext::AUTH_AUTHENTICATED);
         StarCacheContext::set(StarCacheContext::DIM_DEVICE, StarCacheContext::DEVICE_DESKTOP);
-        StarCacheContext::set(StarCacheContext::DIM_EXPERIMENT, '');
         $hashAuth = StarCacheContext::hash();
 
-        // Auth dimension is excluded from hash, so same device + experiment → same hash
         $this->assertSame($hashAnon, $hashAuth, 'Auth dimension must not affect context hash.');
     }
 
     public function testContextSetIsRejectedAfterLock(): void
     {
-        // Ensure we start with a known state
-        $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120';
-        StarCacheContext::reset();
         StarCacheContext::resolve();
-
-        // Confirm device is desktop before lock
-        $this->assertSame(StarCacheContext::DEVICE_DESKTOP, StarCacheContext::get(StarCacheContext::DIM_DEVICE));
-
-        // Lock the context
+        $before = StarCacheContext::get(StarCacheContext::DIM_DEVICE);
         StarCacheContext::lock();
-
-        // Attempt to override after lock – must be silently rejected
         StarCacheContext::set(StarCacheContext::DIM_DEVICE, StarCacheContext::DEVICE_MOBILE);
-
-        // Should still be desktop
-        $this->assertSame(StarCacheContext::DEVICE_DESKTOP, StarCacheContext::get(StarCacheContext::DIM_DEVICE));
+        $this->assertSame($before, StarCacheContext::get(StarCacheContext::DIM_DEVICE));
     }
 
     public function testContextShouldBypassForAnonymous(): void
@@ -217,9 +226,53 @@ class UnitTests extends TestCase
         $this->assertTrue(StarCacheContext::shouldBypass());
     }
 
-    // -------------------------------------------------------------------------
+    public function testContextRegistrationBlocksUnregisteredDimension(): void
+    {
+        StarCacheContext::resolve();
+        // 'my_custom' is not registered — set() should be silently rejected.
+        StarCacheContext::set('my_custom', 'value');
+        $this->assertSame('', StarCacheContext::get('my_custom'));
+    }
+
+    public function testContextRegistrationAllowsRegisteredDimension(): void
+    {
+        // Register before resolve
+        StarCacheContext::register('locale', ['en', 'fr', 'es']);
+        StarCacheContext::resolve();
+        StarCacheContext::set('locale', 'fr');
+        $this->assertSame('fr', StarCacheContext::get('locale'));
+    }
+
+    public function testContextRegistrationEnforcesAllowedValues(): void
+    {
+        StarCacheContext::register('plan', ['free', 'pro', 'enterprise']);
+        StarCacheContext::resolve();
+        // 'unknown' is not in the allowed list — should default to 'free' (first allowed)
+        StarCacheContext::set('plan', 'unknown');
+        $this->assertSame('free', StarCacheContext::get('plan'));
+    }
+
+    public function testContextSanitizesValueCharacters(): void
+    {
+        StarCacheContext::register('campaign', []);
+        StarCacheContext::resolve();
+        // Characters outside [a-z0-9_:-] should be stripped
+        StarCacheContext::set('campaign', 'Hello World! @#$');
+        $this->assertSame('helloworld', StarCacheContext::get('campaign'));
+    }
+
+    public function testContextTruncatesLongValues(): void
+    {
+        StarCacheContext::register('longdim', []);
+        StarCacheContext::resolve();
+        $longValue = str_repeat('a', StarCacheContext::MAX_DIMENSION_VALUE_LENGTH + 10);
+        StarCacheContext::set('longdim', $longValue);
+        $this->assertSame(StarCacheContext::MAX_DIMENSION_VALUE_LENGTH, strlen(StarCacheContext::get('longdim')));
+    }
+
+    // =========================================================================
     // StarResponseController
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     public function testResponseControllerIsEligibleForGetRequest(): void
     {
@@ -233,7 +286,6 @@ class UnitTests extends TestCase
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $this->assertFalse(StarResponseController::isEligible());
-        $_SERVER['REQUEST_METHOD'] = 'GET';
     }
 
     public function testResponseControllerEligibleForHead(): void
@@ -242,7 +294,6 @@ class UnitTests extends TestCase
         StarCacheContext::reset();
         StarCacheContext::set(StarCacheContext::DIM_AUTH, StarCacheContext::AUTH_ANONYMOUS);
         $this->assertTrue(StarResponseController::isEligible());
-        $_SERVER['REQUEST_METHOD'] = 'GET';
     }
 
     public function testResponseControllerNotEligibleWhenAuthenticated(): void
@@ -253,25 +304,32 @@ class UnitTests extends TestCase
         $this->assertFalse(StarResponseController::isEligible());
     }
 
-    // -------------------------------------------------------------------------
-    // StarVersionStore
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // StarVersionStore — renamed groups
+    // =========================================================================
 
-    public function testVersionStoreDefaultsToOne(): void
+    public function testVersionStoreGroupPagesDefaultsToOne(): void
     {
-        $version = StarVersionStore::get('test_group_' . uniqid());
-        $this->assertSame(1, $version);
+        $this->assertSame(1, StarVersionStore::get(StarVersionStore::GROUP_PAGES));
+    }
+
+    public function testVersionStoreGroupObjectsDefaultsToOne(): void
+    {
+        $this->assertSame(1, StarVersionStore::get(StarVersionStore::GROUP_OBJECTS));
+    }
+
+    public function testVersionStoreGroupQueriesDefaultsToOne(): void
+    {
+        $this->assertSame(1, StarVersionStore::get(StarVersionStore::GROUP_QUERIES));
     }
 
     public function testVersionBumpIncrementsVersion(): void
     {
-        $group   = 'test_group_' . uniqid();
-        $before  = StarVersionStore::get($group);
-        $newVer  = StarVersionStore::bump($group);
-        $after   = StarVersionStore::get($group);
-
+        $group  = 'test_group_' . uniqid();
+        $before = StarVersionStore::get($group);
+        $newVer = StarVersionStore::bump($group);
         $this->assertSame($before + 1, $newVer);
-        $this->assertSame($newVer, $after);
+        $this->assertSame($newVer, StarVersionStore::get($group));
     }
 
     public function testVersionResetRestoresOne(): void
@@ -280,28 +338,27 @@ class UnitTests extends TestCase
         StarVersionStore::bump($group);
         StarVersionStore::bump($group);
         StarVersionStore::reset($group);
-
         $this->assertSame(1, StarVersionStore::get($group));
     }
 
-    public function testVersionBumpAllBumpsBuiltInGroups(): void
+    public function testVersionBumpAllBumpsAllGroups(): void
     {
         $before = [
-            StarVersionStore::get(StarVersionStore::GROUP_CONTENT),
-            StarVersionStore::get(StarVersionStore::GROUP_FRAGMENTS),
+            StarVersionStore::get(StarVersionStore::GROUP_PAGES),
             StarVersionStore::get(StarVersionStore::GROUP_QUERIES),
+            StarVersionStore::get(StarVersionStore::GROUP_OBJECTS),
         ];
 
         StarVersionStore::bumpAll();
 
-        $this->assertGreaterThan($before[0], StarVersionStore::get(StarVersionStore::GROUP_CONTENT));
-        $this->assertGreaterThan($before[1], StarVersionStore::get(StarVersionStore::GROUP_FRAGMENTS));
-        $this->assertGreaterThan($before[2], StarVersionStore::get(StarVersionStore::GROUP_QUERIES));
+        $this->assertGreaterThan($before[0], StarVersionStore::get(StarVersionStore::GROUP_PAGES));
+        $this->assertGreaterThan($before[1], StarVersionStore::get(StarVersionStore::GROUP_QUERIES));
+        $this->assertGreaterThan($before[2], StarVersionStore::get(StarVersionStore::GROUP_OBJECTS));
     }
 
-    // -------------------------------------------------------------------------
-    // StarAssetMinifier – CSS minification
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // StarAssetMinifier — CSS
+    // =========================================================================
 
     public function testMinifyCssRemovesBlockComments(): void
     {
@@ -339,9 +396,9 @@ class UnitTests extends TestCase
         $this->assertStringNotContainsString('this is a comment', $minified);
     }
 
-    // -------------------------------------------------------------------------
-    // StarAssetMinifier – JS minification
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // StarAssetMinifier — JS
+    // =========================================================================
 
     public function testMinifyJsRemovesLineComments(): void
     {
@@ -371,15 +428,14 @@ class UnitTests extends TestCase
         $this->assertStringNotContainsString('   ', $minified);
     }
 
-    // -------------------------------------------------------------------------
-    // StarPageCache – bypass detection (now delegates to ResponseController)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // StarPageCache — bypass detection
+    // =========================================================================
 
     public function testShouldBypassReturnsTrueForNonGetRequest(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $this->assertTrue(StarPageCache::shouldBypass());
-        $_SERVER['REQUEST_METHOD'] = 'GET';
     }
 
     public function testShouldBypassReturnsTrueWhenDoNotCachePage(): void
@@ -390,31 +446,28 @@ class UnitTests extends TestCase
         $this->assertTrue(StarPageCache::shouldBypass());
     }
 
-    // -------------------------------------------------------------------------
-    // StarCache – getUserGroup
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // StarCache — getUserGroup
+    // =========================================================================
 
     public function testGetUserGroupWithUserId(): void
     {
-        $cache = new StarCache();
-        $this->assertSame('user_42', $cache->star_getUserGroup('profile', '42'));
+        $this->assertSame('user_42', (new StarCache())->star_getUserGroup('profile', '42'));
     }
 
     public function testGetUserGroupWithoutUserId(): void
     {
-        $cache = new StarCache();
-        $this->assertSame('my_feature', $cache->star_getUserGroup('my_feature'));
+        $this->assertSame('my_feature', (new StarCache())->star_getUserGroup('my_feature'));
     }
 
-    // -------------------------------------------------------------------------
-    // StarCache – get/set/delete round-trip (using WP object cache stub)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // StarCache — get/set/delete round-trip (WP object cache stub)
+    // =========================================================================
 
     public function testSetAndGetCachedData(): void
     {
         $cache = new StarCache();
         $data  = ['foo' => 'bar', 'num' => 42];
-
         $this->assertTrue($cache->star_setCachedData($data, 'test_roundtrip'));
         $this->assertSame($data, $cache->star_getCachedData('test_roundtrip'));
     }
@@ -447,6 +500,15 @@ class UnitTests extends TestCase
         $this->assertSame(['computed' => true], $first);
         $this->assertSame(['computed' => true], $second);
         $this->assertSame(1, $callCount, 'Callback must not be called twice.');
+    }
+
+    public function testRememberPropagatesCallbackException(): void
+    {
+        $cache = new StarCache();
+        $this->expectException(\RuntimeException::class);
+        $cache->star_remember('test_ex', static function (): never {
+            throw new \RuntimeException('callback error');
+        }, 60);
     }
 
     public function testSetWithExplicitTtl(): void

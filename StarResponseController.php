@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StarCache;
 
 /**
@@ -200,12 +202,12 @@ class StarResponseController
 
         header('Cache-Control: public, max-age=' . $maxAge . ', stale-while-revalidate=' . $swr);
 
-        // Vary on the context token so CDNs/Varnish can cache per context bucket
-        header('Vary: X-Cache-Context');
+        // Vary on Cookie + Accept-Encoding so that CDNs serve correct context buckets.
+        header('Vary: Cookie, Accept-Encoding');
         header('X-Cache: MISS');
 
-        // Emit the context hash so upstream caches can verify the bucket
-        header('X-Cache-Context: ' . StarCacheContext::hash());
+        // Debug header: context hash for cache-bucket verification.
+        header('X-StarCache-Context: ' . StarCacheContext::hash());
     }
 
     /**

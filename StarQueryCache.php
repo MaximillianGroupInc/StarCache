@@ -1,24 +1,29 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StarCache;
 
 /**
- * StarQueryCache
+ * StarQueryCache — DEPRECATED
  *
- * Improves WordPress database performance by caching WP_Query results, raw
- * wpdb queries, and post-object lookups inside the WordPress object cache
- * (which in turn is backed by whichever backend StarCacheAdapter detected).
+ * @deprecated This hook-based query cache system will be removed in v3.0.
+ *             Use star_cache_remember() instead:
  *
- * Hooks installed by starcache.php
- * ---------------------------------
- *   posts_pre_query   – return cached post IDs before the SQL fires.
- *   the_posts         – store fetched posts back into cache.
- *   query             – cache arbitrary wpdb SELECT statements.
- *   clean_post_cache  – invalidate per-post cache entries on update/delete.
+ *             $posts = star_cache_remember(
+ *                 'homepage_posts',
+ *                 fn() => get_posts(['numberposts' => 10]),
+ *                 3600
+ *             );
+ *
+ * The posts_pre_query and the_posts hooks registered by this class have been
+ * removed from starcache.php. This class is retained only for the
+ * cachedWpdbQuery() utility and for any third-party code that may still call
+ * its static methods directly.
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.0.0
+ * @version 2.1.1
  * @license Apache 2.0
  */
 class StarQueryCache

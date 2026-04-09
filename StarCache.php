@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace StarCache;
 
 use Exception;
@@ -277,12 +279,11 @@ class StarCache
     // ------------------------------------------------------------------
 
     /**
-     * Build a cache key via StarCacheKey.
+     * Build a cache key via StarCacheKey::build() (static, context + version aware).
      */
     private function buildKey(string $reference, ?string $userId): string
     {
-        $locksmith = new StarCacheKey();
-        return $locksmith->star_getCacheKey($reference, $userId);
+        return StarCacheKey::build($reference, $userId, StarVersionStore::GROUP_OBJECTS);
     }
 
     /**
