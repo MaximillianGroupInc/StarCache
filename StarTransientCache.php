@@ -26,10 +26,10 @@ use Exception;
 class StarTransientCache
 {
     /** Default expiry for dynamic transients (1 hour). */
-    const EXPIRATION_DYNAMIC = 3600;
+    public const EXPIRATION_DYNAMIC = 3600;
 
     /** Default expiry for static transients (1 year). */
-    const EXPIRATION_STATIC = 31536000;
+    public const EXPIRATION_STATIC = 31536000;
 
     // ------------------------------------------------------------------
     // Per-site transients
@@ -44,8 +44,12 @@ class StarTransientCache
      * @param  bool        $isStatic   True = 1-year expiry; false = 1-hour expiry.
      * @return bool
      */
-    public static function star_setCachedData($data, string $reference, ?string $userId = null, bool $isStatic = false): bool
-    {
+    public static function star_setCachedData(
+        $data,
+        string $reference,
+        ?string $userId = null,
+        bool $isStatic = false
+    ): bool {
         $key        = self::buildKey($reference, $userId);
         $expiration = $isStatic ? self::EXPIRATION_STATIC : self::EXPIRATION_DYNAMIC;
 

@@ -422,7 +422,7 @@ class StarPageCache
         $safe = [];
 
         foreach (headers_list() as $header) {
-            $lower = strtolower(explode(':', $header, 2)[0] ?? '');
+            $lower = strtolower(explode(':', $header, 2)[0]);
             if (!in_array($lower, $skip, true)) {
                 $safe[] = $header;
             }

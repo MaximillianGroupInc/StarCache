@@ -1,13 +1,13 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * PHPUnit bootstrap — WordPress function stubs
  *
  * Provides the minimal set of WordPress functions / constants needed by
  * StarCache classes so the test suite can run outside a full WP environment.
  */
+
+declare(strict_types=1);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -191,7 +191,9 @@ if (!function_exists('add_filter')) {
 }
 
 if (!function_exists('do_action')) {
-    function do_action(string $tag, ...$args): void {}
+    function do_action(string $tag, mixed ...$args): void
+    {
+    }
 }
 
 if (!function_exists('esc_html')) {
@@ -243,7 +245,10 @@ if (!function_exists('is_wp_error')) {
 if (!class_exists('WP_Error')) {
     class WP_Error
     {
-        public function get_error_message(): string { return ''; }
+        public function get_error_message(): string
+        {
+            return '';
+        }
     }
 }
 

@@ -107,8 +107,8 @@ class StarCacheAdapter
     /**
      * Retrieve a value from the active cache backend.
      *
-     * @param string      $key
-     * @param string|null $group  Used only by the WP object cache.
+     * @param string $key
+     * @param string $group  Used only by the WP object cache.
      * @return mixed|false
      */
     public static function get(string $key, string $group = '')
@@ -136,10 +136,10 @@ class StarCacheAdapter
     /**
      * Store a value in the active cache backend.
      *
-     * @param string      $key
-     * @param mixed       $value
-     * @param int         $expiration  Seconds (0 = no expiry for WP/Redis).
-     * @param string|null $group       Used only by the WP object cache.
+     * @param string $key
+     * @param mixed  $value
+     * @param int    $expiration  Seconds (0 = no expiry for WP/Redis).
+     * @param string $group       Used only by the WP object cache.
      * @return bool
      */
     public static function set(string $key, $value, int $expiration = 3600, string $group = ''): bool
@@ -157,7 +157,8 @@ class StarCacheAdapter
                     return self::$connection->set($key, $value, $expiration);
 
                 case self::BACKEND_MEMCACHE:
-                    return self::$connection->set($key, $value, false, $expiration);
+                    // Memcache::set($key, $value, $flags, $expire) — 0 = no compression
+                    return self::$connection->set($key, $value, 0, $expiration); // @phpstan-ignore-line
 
                 default:
                     return wp_cache_set($key, $value, $group, $expiration);
@@ -171,8 +172,8 @@ class StarCacheAdapter
     /**
      * Delete a cached value.
      *
-     * @param string      $key
-     * @param string|null $group  Used only by the WP object cache.
+     * @param string $key
+     * @param string $group  Used only by the WP object cache.
      */
     public static function delete(string $key, string $group = ''): bool
     {

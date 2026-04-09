@@ -52,24 +52,21 @@ class StarCacheKey
     public const MAX_REFERENCE_LENGTH = 250;
 
     // -------------------------------------------------------------------------
-    // Instance state (used by the backward-compatible instance API)
+    // Instance state (kept for backward-compatible constructor signature)
     // -------------------------------------------------------------------------
 
-    /** @var string Namespace prefix for all keys produced by this instance. */
-    private string $namespace;
-
-    /** @var string Salt appended before hashing to prevent key collisions. */
-    private string $salt;
-
     /**
-     * @param string|null $salt      Custom salt; defaults to AUTH_KEY + SECURE_AUTH_SALT
-     *                               or 'default_salt' when WP constants are absent.
-     * @param string      $namespace Namespace prefix (default: 'starcache').
+     * @param string|null $salt      Custom salt (ignored — static build() uses its own salt).
+     * @param string      $namespace Namespace prefix (ignored — static build() uses DEFAULT_NAMESPACE).
+     *
+     * @deprecated Instantiating StarCacheKey is deprecated. Use StarCacheKey::build() directly.
+     *
+     * @phpstan-ignore constructor.unusedParameter, constructor.unusedParameter
      */
     public function __construct(?string $salt = null, string $namespace = self::DEFAULT_NAMESPACE)
     {
-        $this->salt      = $salt ?? self::resolveSalt();
-        $this->namespace = $namespace;
+        // Instance properties are not stored — the static build() method resolves
+        // salt and namespace independently for all key construction.
     }
 
     // =========================================================================

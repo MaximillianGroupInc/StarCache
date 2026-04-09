@@ -1,0 +1,17 @@
+parameters:
+    level: 5
+    paths:
+        - StarCache.php
+        - StarCacheAdapter.php
+        - StarCacheContext.php
+        - StarCacheKey.php
+        - StarPageCache.php
+        - StarQueryCache.php
+        - StarResponseController.php
+        - StarTransientCache.php
+        - StarVersionStore.php
+        - StarAssetMinifier.php
+        - starcache.php
+    bootstrapFiles:
+        - phpstan-bootstrap.php
+    reportUnmatchedIgnoredErrors: false

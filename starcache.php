@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * Plugin Name:  StarCache
  * Plugin URI:   https://github.com/MaximillianGroupInc/StarCache
@@ -47,6 +45,8 @@ declare(strict_types=1);
  * @license Apache 2.0
  */
 
+declare(strict_types=1);
+
 namespace StarCache;
 
 if (!defined('ABSPATH')) {
@@ -59,7 +59,7 @@ if (!defined('ABSPATH')) {
 // ---------------------------------------------------------------------------
 $_starCacheDir = __DIR__;
 
-foreach ([
+$_starCacheClasses = [
     'StarCacheKey',
     'StarCacheAdapter',
     'StarCacheContext',
@@ -68,14 +68,16 @@ foreach ([
     'StarCache',
     'StarTransientCache',
     'StarPageCache',
-    'StarQueryCache',   // Deprecated — removal target for v3.0
+    'StarQueryCache',    // Deprecated — removal target for v3.0
     'StarAssetMinifier',
-] as $_starCacheClass) {
+];
+
+foreach ($_starCacheClasses as $_starCacheClass) {
     if (!class_exists(__NAMESPACE__ . '\\' . $_starCacheClass)) {
         require_once $_starCacheDir . '/' . $_starCacheClass . '.php';
     }
 }
-unset($_starCacheDir, $_starCacheClass);
+unset($_starCacheDir, $_starCacheClass, $_starCacheClasses);
 
 // ---------------------------------------------------------------------------
 // REQUEST LIFECYCLE — hook ordering is everything in WordPress.
@@ -108,7 +110,7 @@ add_action('send_headers', static function (): void {
 // ---------------------------------------------------------------------------
 
 // Bump GROUP_PAGES + GROUP_OBJECTS + Varnish PURGE on post save / status change
-add_action('save_post',              [StarPageCache::class, 'purgeOnSave'],         10, 2);
+add_action('save_post', [StarPageCache::class, 'purgeOnSave'], 10, 2);
 add_action('transition_post_status', [StarPageCache::class, 'purgeOnStatusChange'], 10, 3);
 
 // Also invalidate on trash / permanent delete
@@ -135,12 +137,12 @@ add_action('clean_post_cache', static function (int $postId): void {
 // ---------------------------------------------------------------------------
 // Asset minification (StarAssetMinifier — extraction to companion plugin planned)
 // ---------------------------------------------------------------------------
-add_action('init',             [StarAssetMinifier::class, 'init'],           5);
-add_action('wp_print_styles',  [StarAssetMinifier::class, 'processStyles'],  5);
+add_action('init', [StarAssetMinifier::class, 'init'], 5);
+add_action('wp_print_styles', [StarAssetMinifier::class, 'processStyles'], 5);
 add_action('wp_print_scripts', [StarAssetMinifier::class, 'processScripts'], 5);
 
 add_action('upgrader_process_complete', [StarAssetMinifier::class, 'flushAssets']);
-add_action('switch_theme',              [StarAssetMinifier::class, 'flushAssets']);
+add_action('switch_theme', [StarAssetMinifier::class, 'flushAssets']);
 
 // ---------------------------------------------------------------------------
 // Admin bar integration

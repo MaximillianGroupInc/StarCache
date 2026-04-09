@@ -61,7 +61,9 @@ class StarAssetMinifier
 
         $baseDir = defined('STARCACHE_ASSET_DIR')
             ? rtrim(STARCACHE_ASSET_DIR, '/')
-            : (defined('WP_CONTENT_DIR') ? WP_CONTENT_DIR . '/cache/starcache/assets' : sys_get_temp_dir() . '/starcache/assets');
+            : (defined('WP_CONTENT_DIR')
+                ? WP_CONTENT_DIR . '/cache/starcache/assets'
+                : sys_get_temp_dir() . '/starcache/assets');
 
         $baseUrl = defined('STARCACHE_ASSET_URL')
             ? rtrim(STARCACHE_ASSET_URL, '/')

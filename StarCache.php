@@ -42,13 +42,13 @@ class StarCache
     // ------------------------------------------------------------------
 
     /** One year – for content that should be considered permanently cached. */
-    const CACHE_EXPIRATION_STATIC  = 31536000; // 365 * 24 * 3600
+    public const CACHE_EXPIRATION_STATIC  = 31536000; // 365 * 24 * 3600
 
     /** One hour – for content that changes occasionally. */
-    const CACHE_EXPIRATION_DYNAMIC = 3600;
+    public const CACHE_EXPIRATION_DYNAMIC = 3600;
 
     /** Cache group used for all data managed by this class. */
-    const CACHE_GROUP = 'starcache_data';
+    public const CACHE_GROUP = 'starcache_data';
 
     // ------------------------------------------------------------------
     // Constructor

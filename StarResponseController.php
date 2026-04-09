@@ -45,10 +45,10 @@ class StarResponseController
     // -------------------------------------------------------------------------
 
     /** Default public max-age in seconds (5 minutes). */
-    const DEFAULT_MAX_AGE = 300;
+    public const DEFAULT_MAX_AGE = 300;
 
     /** Default stale-while-revalidate window in seconds. */
-    const DEFAULT_STALE_WHILE_REVALIDATE = 30;
+    public const DEFAULT_STALE_WHILE_REVALIDATE = 30;
 
     /** @var bool Whether headers have been applied for this request. */
     private static bool $applied = false;

@@ -221,7 +221,7 @@ class StarCacheContext
         // Enforce allowed-value list if defined for this dimension.
         $allowedValues = self::$registered[$dimension];
         if (!empty($allowedValues) && !in_array($sanitized, $allowedValues, true)) {
-            $sanitized = $allowedValues[0] ?? '';
+            $sanitized = $allowedValues[0];
         }
 
         self::$dimensions[$dimension] = $sanitized;
@@ -368,7 +368,7 @@ class StarCacheContext
             $allowedValues = self::$registered[(string) $name];
             if (!empty($allowedValues) && !in_array($sanitized, $allowedValues, true)) {
                 // Value not in allow-list: use the first allowed value as the default.
-                $sanitized = $allowedValues[0] ?? '';
+                $sanitized = $allowedValues[0];
             }
 
             $clean[(string) $name] = $sanitized;
