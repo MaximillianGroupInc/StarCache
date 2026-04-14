@@ -402,18 +402,26 @@ class UnitTests extends TestCase
     // StarAssetMinifier — JS
     // =========================================================================
 
-    public function testMinifyJsRemovesLineComments(): void
+    /**
+     * minifyJs() performs safe-only normalisation (trim only).
+     * It deliberately does NOT strip comments or collapse whitespace because
+     * regex-based stripping breaks valid JS that contains `//` or `/*` inside
+     * strings, template literals, or regex literals.
+     */
+    public function testMinifyJsPreservesContent(): void
     {
+        // Content inside a line comment must survive — stripping it would be unsafe
         $input    = "var x = 1; // this is a comment\nvar y = 2;";
         $minified = StarAssetMinifier::minifyJs($input);
-        $this->assertStringNotContainsString('this is a comment', $minified);
+        $this->assertStringContainsString('this is a comment', $minified);
     }
 
-    public function testMinifyJsRemovesBlockComments(): void
+    public function testMinifyJsPreservesBlockComments(): void
     {
+        // Block comment content is preserved intact
         $input    = "/* block comment */\nvar a = 1;";
         $minified = StarAssetMinifier::minifyJs($input);
-        $this->assertStringNotContainsString('block comment', $minified);
+        $this->assertStringContainsString('block comment', $minified);
     }
 
     public function testMinifyJsPreservesLicenseComments(): void
@@ -423,11 +431,12 @@ class UnitTests extends TestCase
         $this->assertStringContainsString('License header', $minified);
     }
 
-    public function testMinifyJsCollapsesWhitespace(): void
+    public function testMinifyJsTrimsSurroundingWhitespace(): void
     {
-        $input    = "var   x   =   1;";
+        // Only leading/trailing whitespace is removed
+        $input    = "  \n  var x = 1;  \n  ";
         $minified = StarAssetMinifier::minifyJs($input);
-        $this->assertStringNotContainsString('   ', $minified);
+        $this->assertSame('var x = 1;', $minified);
     }
 
     // =========================================================================
