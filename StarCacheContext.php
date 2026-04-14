@@ -381,6 +381,7 @@ class StarCacheContext
                 count($clean),
                 self::MAX_DIMENSIONS
             ));
+            ksort($clean, SORT_STRING);
             $clean = array_slice($clean, 0, self::MAX_DIMENSIONS, true);
         }
 
