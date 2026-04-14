@@ -155,31 +155,17 @@ class StarAssetMinifier
     /**
      * Minify a JavaScript string.
      *
-     * Removes comments and collapses whitespace while preserving string literals.
+     * JavaScript cannot be safely minified with regular expressions because
+     * comment markers and whitespace-sensitive tokens may appear inside valid
+     * strings, template literals, and regular expression literals. To avoid
+     * corrupting assets, this method only trims leading and trailing
+     * file-level whitespace.
      *
      * @param string $js  Raw JavaScript input.
-     * @return string     Minified JavaScript.
+     * @return string     Safely normalized JavaScript.
      */
     public static function minifyJs(string $js): string
     {
-        // Remove single-line comments (// …) but preserve license comments (//!)
-        $js = preg_replace('/\/\/(?!!)[^\r\n]*/', '', $js) ?? $js;
-
-        // Remove block comments /* … */ but preserve license comments /*! … */
-        $js = preg_replace('/\/\*(?!!)([\s\S]*?)\*\//', '', $js) ?? $js;
-
-        // Collapse horizontal whitespace (spaces and tabs) to a single space
-        $js = preg_replace('/[ \t]+/', ' ', $js) ?? $js;
-
-        // Remove consecutive blank lines
-        $js = preg_replace('/\n\s*\n/', "\n", $js) ?? $js;
-
-        // Remove spaces around braces, parentheses, semicolons and commas
-        $js = preg_replace('/\s*([{}();,])\s*/', '$1', $js) ?? $js;
-
-        // Remove spaces around assignment operators
-        $js = preg_replace('/\s*=\s*/', '=', $js) ?? $js;
-
         return trim($js);
     }
 
