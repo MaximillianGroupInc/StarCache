@@ -23,8 +23,8 @@ namespace StarCache;
  * Default policy
  * --------------
  *   Cache-Control: public, max-age=300, stale-while-revalidate=30
- *   Vary: X-Cache-Context
- *   X-Cache-Context: {context-hash}
+ *   Vary: Cookie, Accept-Encoding
+ *   X-StarCache-Context: {context-hash}
  *   X-Cache: MISS
  *
  * Overriding TTL values
