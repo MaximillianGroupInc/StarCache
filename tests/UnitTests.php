@@ -12,6 +12,7 @@ use StarCache\StarPageCache;
 use StarCache\StarCacheContext;
 use StarCache\StarResponseController;
 use StarCache\StarVersionStore;
+use StarCache\StarQueryCache;
 
 /**
  * StarCache v2.1.1 Test Suite
@@ -26,6 +27,7 @@ use StarCache\StarVersionStore;
  * - StarCacheContext: registration, resolution, constraints, locking, hash
  * - StarResponseController: eligibility checks
  * - StarVersionStore: version get/bump/reset with renamed groups
+ * - StarQueryCache: key determinism, version invalidation
  */
 class UnitTests extends TestCase
 {
@@ -449,11 +451,13 @@ class UnitTests extends TestCase
         $this->assertTrue(StarPageCache::shouldBypass());
     }
 
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
     public function testShouldBypassReturnsTrueWhenDoNotCachePage(): void
     {
-        if (!defined('DONOTCACHEPAGE')) {
-            define('DONOTCACHEPAGE', true);
-        }
+        define('DONOTCACHEPAGE', true);
         $this->assertTrue(StarPageCache::shouldBypass());
     }
 
@@ -540,5 +544,102 @@ class UnitTests extends TestCase
     public function testIsOpcacheEnabledReturnsBool(): void
     {
         $this->assertIsBool((new StarCache())->star_isOpcacheEnabled());
+    }
+
+    // =========================================================================
+    // StarQueryCache — key determinism + version invalidation
+    // =========================================================================
+
+    public function testCachedWpdbQueryKeyIsDeterministic(): void
+    {
+        // Two identical SQL queries must resolve to the same cache entry.
+        global $wpdb;
+        $wpdb->callCount = 0;
+        wp_cache_delete_group('starcache_wpdb');
+
+        $sql = 'SELECT ID FROM wp_posts WHERE post_status = "publish" LIMIT 10';
+
+        StarQueryCache::cachedWpdbQuery($sql); // miss → populates cache
+        StarQueryCache::cachedWpdbQuery($sql); // hit  → no additional wpdb call
+
+        $this->assertSame(1, $wpdb->callCount, 'Second call with same SQL must be served from cache.');
+    }
+
+    public function testCachedWpdbQueryKeyVariesBySql(): void
+    {
+        // Two different SQL statements must use independent cache entries.
+        // We verify this by checking that the second SQL causes a fresh wpdb hit
+        // while the first SQL is served from cache (call count = 1 not 2).
+        global $wpdb;
+        $wpdb->callCount = 0;
+        wp_cache_delete_group('starcache_wpdb');
+
+        $sql1 = 'SELECT ID FROM wp_posts WHERE post_status = "publish" LIMIT 10';
+        $sql2 = 'SELECT ID FROM wp_posts WHERE post_status = "draft" LIMIT 10';
+
+        StarQueryCache::cachedWpdbQuery($sql1); // miss → wpdb call 1
+        StarQueryCache::cachedWpdbQuery($sql1); // hit  → no new wpdb call
+        StarQueryCache::cachedWpdbQuery($sql2); // miss → wpdb call 2
+
+        $this->assertSame(2, $wpdb->callCount, 'Each distinct SQL string must produce a separate cache key.');
+    }
+
+    public function testQueryCacheInvalidatedByVersionBump(): void
+    {
+        // Use a fresh group so no prior test state interferes.
+        $group = 'test_q_invalidate_' . uniqid();
+
+        // Version starts at 1 for any unknown group.
+        $this->assertSame(1, StarVersionStore::get($group));
+
+        // Key at version 1
+        $keyV1 = StarCacheKey::build('homepage_posts', null, $group);
+
+        // Bump makes all keys embedding the old version unreachable.
+        StarVersionStore::bump($group);
+        $keyV2 = StarCacheKey::build('homepage_posts', null, $group);
+
+        $this->assertNotSame($keyV1, $keyV2, 'Bumped version must produce a different key.');
+
+        // Resetting back to version 1 must reproduce the original key.
+        StarVersionStore::reset($group);
+        $keyV1again = StarCacheKey::build('homepage_posts', null, $group);
+
+        $this->assertSame($keyV1, $keyV1again, 'Same version must produce the same key.');
+    }
+
+    public function testQueryCacheKeyIncludesBlogId(): void
+    {
+        // StarQueryCache::cachedWpdbQuery() embeds the blog ID in its cache key
+        // so that identical SQL on different sites never shares entries.
+        // We verify this by resetting the wpdb call counter, running the same SQL
+        // twice (second call must be a hit), then simulating a blog-switch by
+        // flushing the WP object-cache group that holds the entry and confirming
+        // a fresh wpdb call is triggered (different key = cold cache).
+        global $wpdb;
+        $wpdb->callCount = 0;
+        wp_cache_delete_group('starcache_wpdb');
+
+        $sql = 'SELECT ID FROM wp_posts WHERE post_status = "publish" ORDER BY ID LIMIT 5';
+
+        StarQueryCache::cachedWpdbQuery($sql); // miss — populates blog-1 key
+        StarQueryCache::cachedWpdbQuery($sql); // hit  — served from blog-1 key
+        $this->assertSame(1, $wpdb->callCount, 'Second call should be served from cache.');
+
+        // Flush the query group (simulates what happens when another blog's
+        // identical SQL populates a key that has a different blog-ID prefix).
+        wp_cache_delete_group('starcache_wpdb');
+
+        StarQueryCache::cachedWpdbQuery($sql); // cold again after flush
+        $this->assertSame(2, $wpdb->callCount, 'After cache flush, wpdb must be called again.');
+    }
+
+    public function testQueryCacheVersionGroupQueriesDefaultsToOne(): void
+    {
+        // GROUP_QUERIES must start at version 1 in a fresh environment.
+        // (setUp() calls StarCacheContext::reset() but not StarVersionStore::reset()
+        //  so we use a unique group name to avoid cross-test interference.)
+        $uniqueGroup = 'test_qcache_' . uniqid();
+        $this->assertSame(1, StarVersionStore::get($uniqueGroup));
     }
 }

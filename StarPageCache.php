@@ -73,6 +73,11 @@ class StarPageCache
     public static function startPageCache(): void
     {
         if (!StarResponseController::isEligible()) {
+            // Signal to downstream observers (CDN, ops tools) that this response
+            // was not eligible for the page cache.
+            if (!headers_sent()) {
+                header('X-Cache: BYPASS');
+            }
             return;
         }
 
@@ -129,6 +134,12 @@ class StarPageCache
 
         // Emit cache-tag header for targeted CDN/Varnish purging
         self::sendCacheTags();
+
+        // Signal to downstream observers that this response was a cache miss
+        // (freshly generated and stored).
+        if (!headers_sent()) {
+            header('X-Cache: MISS');
+        }
 
         return $html;
     }

@@ -142,6 +142,25 @@ namespace StarCache {
         StarVersionStore::bump(StarVersionStore::GROUP_QUERIES);
     });
 
+    // Bump GROUP_OBJECTS when any post meta value is updated.
+    // This covers custom fields that affect rendered output or query results.
+    add_action('updated_post_meta', static function (int $metaId, int $postId): void {
+        StarVersionStore::bump(StarVersionStore::GROUP_OBJECTS);
+    }, 10, 2);
+
+    // Bump GROUP_PAGES + GROUP_QUERIES when taxonomy terms are assigned.
+    // Term changes affect archive/taxonomy pages and any query using tax_query.
+    add_action('set_object_terms', static function (int $objectId): void {
+        StarVersionStore::bump(StarVersionStore::GROUP_PAGES);
+        StarVersionStore::bump(StarVersionStore::GROUP_QUERIES);
+    });
+
+    // Bump GROUP_OBJECTS when any option is updated.
+    // Option changes (e.g. site title, theme settings) can affect cached output.
+    add_action('updated_option', static function (string $option): void {
+        StarVersionStore::bump(StarVersionStore::GROUP_OBJECTS);
+    });
+
     // -------------------------------------------------------------------------
     // Asset minification (StarAssetMinifier — extraction to companion plugin planned)
     // -------------------------------------------------------------------------

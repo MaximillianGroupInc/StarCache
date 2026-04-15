@@ -273,6 +273,66 @@ if (!function_exists('admin_url')) {
     }
 }
 
+if (!class_exists('WP_Post')) {
+    // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+    class WP_Post
+    {
+        public int    $ID        = 0;
+        public string $post_type = 'post';
+
+        public function __construct(int $id = 0, string $postType = 'post')
+        {
+            $this->ID        = $id;
+            $this->post_type = $postType;
+        }
+    }
+}
+
+if (!class_exists('WP_Query')) {
+    // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+    class WP_Query
+    {
+        /** @var array<string, mixed> */
+        public array $query_vars  = [];
+        public int   $found_posts = 0;
+        public int   $max_num_pages = 0;
+
+        /** @param array<string, mixed> $vars */
+        public function __construct(array $vars = [])
+        {
+            $this->query_vars = $vars;
+        }
+
+        public function get(string $key): mixed
+        {
+            return $this->query_vars[$key] ?? '';
+        }
+
+        public function is_singular(): bool
+        {
+            return false;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// $wpdb stub — minimal in-memory query shim for StarQueryCache tests
+// ---------------------------------------------------------------------------
+if (!isset($GLOBALS['wpdb'])) {
+    // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+    $GLOBALS['wpdb'] = new class () {
+        public string $last_error = '';
+        public int    $callCount  = 0;
+
+        /** @return mixed[]|null */
+        public function get_results(string $sql, string $output = 'ARRAY_A'): ?array
+        {
+            $this->callCount++;
+            return [];
+        }
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Autoloader
 // ---------------------------------------------------------------------------
