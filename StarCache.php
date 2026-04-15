@@ -94,17 +94,7 @@ class StarCache
             $key   = $this->buildKey($reference, $userId);
             $group = $this->star_getUserGroup($reference, $userId);
 
-            $value = StarCacheAdapter::get($key, $group);
-
-            // Warm from transient if object-cache missed
-            if ($value === false) {
-                $transient = get_transient($key);
-                if ($transient !== false) {
-                    return $transient;
-                }
-            }
-
-            return $value;
+            return StarCacheAdapter::get($key, $group);
         } catch (Exception $e) {
             $this->logError('Error getting cached data', $e);
             return false;

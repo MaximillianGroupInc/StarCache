@@ -117,7 +117,11 @@ class StarCacheAdapter
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
                     $value = self::$connection->get($key);
-                    return ($value === false) ? false : @unserialize($value);
+                    if ($value === false) {
+                        return false;
+                    }
+                    $unserialized = unserialize($value, ['allowed_classes' => false]);
+                    return ($unserialized === false && $value !== serialize(false)) ? false : $unserialized;
 
                 case self::BACKEND_MEMCACHED:
                 case self::BACKEND_MEMCACHE:

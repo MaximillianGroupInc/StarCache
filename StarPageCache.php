@@ -105,8 +105,24 @@ class StarPageCache
             return $html;
         }
 
-        $ttl     = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
+        // Only cache successful, non-redirect responses.
+        // http_response_code() can return false in CLI / before headers are sent;
+        // treat that as 200 (cacheable) to avoid skipping valid buffered output.
+        $statusCode = http_response_code();
+        if ($statusCode !== false && $statusCode !== 200) {
+            return $html;
+        }
+
+        // Do not cache responses that carry a Location header (redirects that
+        // PHP already sent before the output buffer flushed).
         $headers = self::collectSafeHeaders();
+        foreach ($headers as $h) {
+            if (stripos($h, 'Location:') === 0) {
+                return $html;
+            }
+        }
+
+        $ttl     = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
         $payload = ['html' => $html, 'headers' => $headers, 'time' => time()];
 
         StarCacheAdapter::set(self::$currentPageKey, $payload, $ttl, self::GROUP_PAGE);
@@ -418,7 +434,16 @@ class StarPageCache
             return [];
         }
 
-        $skip = ['set-cookie', 'x-cache', 'x-cache-tags', 'x-cache-context', 'cache-control'];
+        // Skip headers that StarResponseController owns (to avoid duplicates on replays),
+        // plus headers that must never be cached.
+        $skip = [
+            'set-cookie',
+            'cache-control',
+            'vary',
+            'x-cache',
+            'x-cache-tags',
+            'x-starcache-context',
+        ];
         $safe = [];
 
         foreach (headers_list() as $header) {

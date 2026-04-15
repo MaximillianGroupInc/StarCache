@@ -228,8 +228,11 @@ class StarAssetMinifier
         }
 
         $mtime    = (int) @filemtime($localPath);
-        $cacheKey = $handle . '-' . md5($localPath . $mtime);
-        $fileName = $cacheKey . '.min.' . $type;
+        // Hash the handle so that arbitrary plugin/theme strings (including any
+        // path-traversal sequences like "../") can never influence the filename.
+        $safeHandle = md5($handle);
+        $cacheKey   = $safeHandle . '-' . md5($localPath . $mtime);
+        $fileName   = $cacheKey . '.min.' . $type;
         $destPath = self::$cacheDir . '/' . $fileName;
         $destUrl  = self::$cacheUrl . '/' . $fileName;
 
@@ -277,16 +280,47 @@ class StarAssetMinifier
         $siteUrl    = defined('WP_SITEURL')     ? WP_SITEURL    : (function_exists('site_url') ? site_url() : '');
 
         if ($contentUrl && strpos($url, $contentUrl) === 0) {
-            return WP_CONTENT_DIR . substr($url, strlen($contentUrl));
+            $candidate = WP_CONTENT_DIR . substr($url, strlen($contentUrl));
+        } elseif ($siteUrl && strpos($url, $siteUrl) === 0) {
+            $candidate = rtrim(ABSPATH, '/') . substr($url, strlen(rtrim($siteUrl, '/')));
+        } elseif (!empty($url) && $url[0] === '/') {
+            // URL begins with / (root-relative)
+            $candidate = rtrim(ABSPATH, '/') . $url;
+        } else {
+            return null;
         }
 
-        if ($siteUrl && strpos($url, $siteUrl) === 0) {
-            return rtrim(ABSPATH, '/') . substr($url, strlen(rtrim($siteUrl, '/')));
+        // Resolve symlinks / `..` segments and validate the path stays inside
+        // an allowed base directory to prevent path-traversal attacks.
+        $resolved = realpath($candidate);
+        if ($resolved === false) {
+            return null;
         }
 
-        // URL begins with / (root-relative)
-        if (!empty($url) && $url[0] === '/') {
-            return rtrim(ABSPATH, '/') . $url;
+        $resolvedAbspath = realpath(ABSPATH);
+        if ($resolvedAbspath === false) {
+            // Cannot validate safely without a canonical ABSPATH.
+            return null;
+        }
+
+        $allowedBases = [rtrim($resolvedAbspath, '/\\')];
+        if (defined('WP_CONTENT_DIR')) {
+            $resolvedContent = realpath(WP_CONTENT_DIR);
+            if ($resolvedContent !== false) {
+                $allowedBases[] = rtrim($resolvedContent, '/\\');
+            }
+        }
+
+        // Normalise separators so the check works on Windows too.
+        $resolvedNorm = str_replace('\\', '/', $resolved);
+        foreach ($allowedBases as $base) {
+            $baseNorm = str_replace('\\', '/', $base);
+            if (
+                strpos($resolvedNorm, $baseNorm . '/') === 0
+                || $resolvedNorm === $baseNorm
+            ) {
+                return $resolved;
+            }
         }
 
         return null;
