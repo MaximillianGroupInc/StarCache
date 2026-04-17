@@ -153,20 +153,34 @@ class StarAssetMinifier
     }
 
     /**
-     * Minify a JavaScript string.
+     * Normalize a JavaScript string (trim leading/trailing whitespace only).
      *
      * JavaScript cannot be safely minified with regular expressions because
      * comment markers and whitespace-sensitive tokens may appear inside valid
-     * strings, template literals, and regular expression literals. To avoid
-     * corrupting assets, this method only trims leading and trailing
-     * file-level whitespace.
+     * strings, template literals, and regular expression literals.  Regex-based
+     * stripping corrupts valid JS, so this method intentionally limits itself
+     * to trimming file-level whitespace.
+     *
+     * Full AST-based minification (e.g. via an external tool such as terser) is
+     * the correct approach and is planned for the v3.0 companion plugin.
      *
      * @param string $js  Raw JavaScript input.
-     * @return string     Safely normalized JavaScript.
+     * @return string     Whitespace-normalized JavaScript (content is unchanged).
+     */
+    public static function normalizeJs(string $js): string
+    {
+        return trim($js);
+    }
+
+    /**
+     * @deprecated 2.1.1 Use {@see self::normalizeJs()} instead.
+     *             This alias will be removed in v3.0.
+     * @param string $js
+     * @return string
      */
     public static function minifyJs(string $js): string
     {
-        return trim($js);
+        return self::normalizeJs($js);
     }
 
     // -------------------------------------------------------------------------
@@ -242,7 +256,7 @@ class StarAssetMinifier
             if ($source === false) {
                 return;
             }
-            $minified  = ($type === 'css') ? self::minifyCss($source) : self::minifyJs($source);
+            $minified  = ($type === 'css') ? self::minifyCss($source) : self::normalizeJs($source);
 
             // Write atomically via temp file
             $tmpPath = $destPath . '.tmp';

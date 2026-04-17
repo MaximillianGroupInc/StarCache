@@ -114,6 +114,27 @@ class StarQueryCache
      * Call this as a wrapper around $wpdb->get_results() / $wpdb->get_col()
      * when you want to cache the result.
      *
+     * @deprecated 2.1.1 Use star_cache_remember() instead, which provides the same
+     *             cache-aside pattern and integrates with the version-bump invalidation
+     *             system.  Direct replacement example:
+     *
+     *             // Before (StarQueryCache):
+     *             $rows = StarQueryCache::cachedWpdbQuery(
+     *                 $wpdb->prepare('SELECT ID FROM wp_posts WHERE post_status=%s', 'publish'),
+     *                 ARRAY_A,
+     *                 300
+     *             );
+     *
+     *             // After (star_cache_remember):
+     *             $rows = star_cache_remember('my_posts', static function () use ($wpdb): array {
+     *                 return $wpdb->get_results(
+     *                     $wpdb->prepare('SELECT ID FROM wp_posts WHERE post_status=%s', 'publish'),
+     *                     ARRAY_A
+     *                 ) ?? [];
+     *             }, 300);
+     *
+     *             This method will be removed in v3.0.
+     *
      * @param  string   $sql        Prepared SQL string.
      * @param  string   $output     WPDB output constant (ARRAY_A, OBJECT, etc.).
      * @param  int      $ttl
