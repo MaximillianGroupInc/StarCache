@@ -53,7 +53,7 @@ class StarQueryCache
      * @param  \WP_Query       $query
      * @return \WP_Post[]|null
      */
-    public static function postsPreQuery($posts, \WP_Query $query)
+    public static function postsPreQuery(?array $posts, \WP_Query $query): ?array
     {
         if (!self::isCacheableQuery($query)) {
             return $posts;
@@ -140,7 +140,7 @@ class StarQueryCache
      * @param  int      $ttl
      * @return mixed
      */
-    public static function cachedWpdbQuery(string $sql, string $output = ARRAY_A, int $ttl = self::TTL_QUERY)
+    public static function cachedWpdbQuery(string $sql, string $output = ARRAY_A, int $ttl = self::TTL_QUERY): mixed
     {
         global $wpdb;
 

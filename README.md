@@ -17,12 +17,11 @@ without manual plumbing.
 | **Full-page cache** | Output-buffer caching for entire HTML responses; serves cached pages before WordPress queries the database. |
 | **Fragment / partial cache** | `getFragment` / `saveFragment` helpers to cache chunks of template output (sidebar, navigation, widgets, etc.). |
 | **Varnish integration** | Sends `Cache-Control`, `Vary`, and `X-Cache-Tags` headers; issues HTTP `PURGE` requests to Varnish on post save / status change. |
-| **Query cache utility (deprecated)** | Deprecated `StarQueryCache` helpers provide object-cache look-aside for selected database/query results; hook-based `WP_Query` caching via `posts_pre_query` / `the_posts` is not currently registered. |
-| **Raw SQL cache** | `StarQueryCache::cachedWpdbQuery()` wraps `$wpdb->get_results()` with object-cache look-aside. |
+| **Query cache utility (deprecated)** | `StarQueryCache` provides `cachedWpdbQuery()` for SQL look-aside caching. Hook-based `WP_Query` caching via `posts_pre_query` / `the_posts` is not registered and will not be in v3.0. |
 | **Transient helpers** | Per-site and **network-wide** (multisite) transient wrappers with consistent key generation. |
 | **Asset minification** | Minifies enqueued CSS and JS files in PHP (no external tools), writes to a filesystem cache, and swaps the enqueued `src` URL. |
 | **Multisite-aware** | Every cache key embeds the current blog ID; network transients span all sites. |
-| **WP-CLI command** | `wp starcache flush` bumps cache versions to invalidate StarCache entries rather than deleting underlying storage directly. |
+| **WP-CLI command** | `wp starcache flush` bumps version counters to invalidate cache entries. It does not delete underlying storage. |
 | **Admin bar badge** | Shows the active backend (e.g. `StarCache: REDIS + OPcache`) to admins. |
 
 ---

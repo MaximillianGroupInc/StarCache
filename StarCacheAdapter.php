@@ -87,7 +87,7 @@ class StarCacheAdapter
      *
      * @return \Redis|\Memcached|\Memcache|null
      */
-    public static function getConnection()
+    public static function getConnection(): \Redis|\Memcached|\Memcache|null
     {
         return self::$connection;
     }
@@ -109,9 +109,9 @@ class StarCacheAdapter
      *
      * @param string $key
      * @param string $group  Used only by the WP object cache.
-     * @return mixed|false
+     * @return mixed
      */
-    public static function get(string $key, string $group = '')
+    public static function get(string $key, string $group = ''): mixed
     {
         try {
             switch (self::$detectedBackend) {
@@ -146,7 +146,7 @@ class StarCacheAdapter
      * @param string $group       Used only by the WP object cache.
      * @return bool
      */
-    public static function set(string $key, $value, int $expiration = 3600, string $group = ''): bool
+    public static function set(string $key, mixed $value, int $expiration = 3600, string $group = ''): bool
     {
         try {
             switch (self::$detectedBackend) {

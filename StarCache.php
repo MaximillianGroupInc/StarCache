@@ -86,9 +86,9 @@ class StarCache
      *
      * @param  string      $reference  Feature / table name.
      * @param  string|null $userId     Optional user identifier.
-     * @return mixed|false  Cached value or false on miss / error.
+     * @return mixed  Cached value or false on miss / error.
      */
-    public function star_getCachedData(string $reference, ?string $userId = null)
+    public function star_getCachedData(string $reference, ?string $userId = null): mixed
     {
         try {
             $key   = $this->buildKey($reference, $userId);
@@ -110,7 +110,7 @@ class StarCache
      * @param  bool        $isStatic   True = long-term (1 year), false = 1 hour.
      * @return bool  True on success, false on failure.
      */
-    public function star_setCachedData($data, string $reference, ?string $userId = null, bool $isStatic = false): bool
+    public function star_setCachedData(mixed $data, string $reference, ?string $userId = null, bool $isStatic = false): bool
     {
         try {
             $key        = $this->buildKey($reference, $userId);
@@ -174,7 +174,7 @@ class StarCache
      * @param  string|null $userId
      * @return mixed
      */
-    public function star_remember(string $reference, callable $callback, int $ttl = 0, ?string $userId = null)
+    public function star_remember(string $reference, callable $callback, int $ttl = 0, ?string $userId = null): mixed
     {
         $cached = $this->star_getCachedData($reference, $userId);
         if ($cached !== false) {
@@ -196,7 +196,7 @@ class StarCache
      * @param  string|null $userId
      * @return bool
      */
-    public function star_setCachedDataWithTtl($data, string $reference, int $ttl, ?string $userId = null): bool
+    public function star_setCachedDataWithTtl(mixed $data, string $reference, int $ttl, ?string $userId = null): bool
     {
         try {
             $key   = $this->buildKey($reference, $userId);

@@ -45,7 +45,7 @@ class StarTransientCache
      * @return bool
      */
     public static function star_setCachedData(
-        $data,
+        mixed $data,
         string $reference,
         ?string $userId = null,
         bool $isStatic = false
@@ -69,9 +69,9 @@ class StarTransientCache
      *
      * @param  string      $reference
      * @param  string|null $userId
-     * @return mixed|false  Cached value or false on miss / error.
+     * @return mixed  Cached value or false on miss / error.
      */
-    public static function star_getCachedData(string $reference, ?string $userId = null)
+    public static function star_getCachedData(string $reference, ?string $userId = null): mixed
     {
         $key = self::buildKey($reference, $userId);
 
@@ -112,7 +112,7 @@ class StarTransientCache
      * @param  bool   $isStatic
      * @return bool
      */
-    public static function star_setNetworkCachedData($data, string $reference, bool $isStatic = false): bool
+    public static function star_setNetworkCachedData(mixed $data, string $reference, bool $isStatic = false): bool
     {
         $key        = self::buildNetworkKey($reference);
         $expiration = $isStatic ? self::EXPIRATION_STATIC : self::EXPIRATION_DYNAMIC;
@@ -132,9 +132,9 @@ class StarTransientCache
      * Retrieve a network-wide transient.
      *
      * @param  string $reference
-     * @return mixed|false
+     * @return mixed
      */
-    public static function star_getNetworkCachedData(string $reference)
+    public static function star_getNetworkCachedData(string $reference): mixed
     {
         $key = self::buildNetworkKey($reference);
 
