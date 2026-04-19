@@ -124,12 +124,20 @@ class StarCacheAdapter
                     return ($unserialized === false && $value !== serialize(false)) ? false : $unserialized;
 
                 case self::BACKEND_MEMCACHED:
+                    $value = self::$connection->get($key);
+                    if ($value === false && self::$connection->getResultCode() === \Memcached::RES_NOTFOUND) {
+                        return false;
+                    }
+                    return $value;
+
                 case self::BACKEND_MEMCACHE:
                     $value = self::$connection->get($key);
                     return ($value === false) ? false : $value;
 
                 default:
-                    return wp_cache_get($key, $group);
+                    $found = false;
+                    $value = wp_cache_get($key, $group, false, $found);
+                    return $found ? $value : false;
             }
         } catch (Exception $e) {
             self::logError('StarCacheAdapter::get', $e);
