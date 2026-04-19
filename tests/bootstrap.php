@@ -130,7 +130,7 @@ if (!function_exists('delete_site_transient')) {
 if (!function_exists('get_current_blog_id')) {
     function get_current_blog_id(): int
     {
-        return 1;
+        return (int) ($GLOBALS['_starcache_test_blog_id'] ?? 1);
     }
 }
 

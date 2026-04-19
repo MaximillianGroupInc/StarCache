@@ -40,6 +40,8 @@ class UnitTests extends TestCase
         // Standard Chrome User-Agent (kept long intentionally — PSR-12 line-length: warning only)
         // phpcs:ignore Generic.Files.LineLength
         $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+        // Reset the blog-ID stub to 1 so tests that modify it don't pollute later tests.
+        $GLOBALS['_starcache_test_blog_id'] = 1;
     }
 
     // =========================================================================
@@ -612,26 +614,32 @@ class UnitTests extends TestCase
     {
         // StarQueryCache::cachedWpdbQuery() embeds the blog ID in its cache key
         // so that identical SQL on different sites never shares entries.
-        // We verify this by resetting the wpdb call counter, running the same SQL
-        // twice (second call must be a hit), then simulating a blog-switch by
-        // flushing the WP object-cache group that holds the entry and confirming
-        // a fresh wpdb call is triggered (different key = cold cache).
+        // We verify this by:
+        //   1. Running a query on site 1 → populates the site-1 key.
+        //   2. Confirming the second call on site 1 is a cache hit (wpdb called once).
+        //   3. Switching to site 2 → the same SQL must produce a different key,
+        //      causing a cache MISS and a fresh wpdb call.
         global $wpdb;
+
+        // Start fresh with site 1.
+        $GLOBALS['_starcache_test_blog_id'] = 1;
         $wpdb->callCount = 0;
         wp_cache_delete_group('starcache_wpdb');
 
         $sql = 'SELECT ID FROM wp_posts WHERE post_status = "publish" ORDER BY ID LIMIT 5';
 
-        StarQueryCache::cachedWpdbQuery($sql); // miss — populates blog-1 key
-        StarQueryCache::cachedWpdbQuery($sql); // hit  — served from blog-1 key
-        $this->assertSame(1, $wpdb->callCount, 'Second call should be served from cache.');
+        StarQueryCache::cachedWpdbQuery($sql); // MISS on site 1 — populates key sc_sql_1_*
+        StarQueryCache::cachedWpdbQuery($sql); // HIT  on site 1 — served from cache
+        $this->assertSame(1, $wpdb->callCount, 'Second call on the same site must be served from cache.');
 
-        // Flush the query group (simulates what happens when another blog's
-        // identical SQL populates a key that has a different blog-ID prefix).
-        wp_cache_delete_group('starcache_wpdb');
+        // Switch to site 2 — same SQL, different key prefix.
+        $GLOBALS['_starcache_test_blog_id'] = 2;
 
-        StarQueryCache::cachedWpdbQuery($sql); // cold again after flush
-        $this->assertSame(2, $wpdb->callCount, 'After cache flush, wpdb must be called again.');
+        StarQueryCache::cachedWpdbQuery($sql); // MISS on site 2 — sc_sql_2_* is cold
+        $this->assertSame(2, $wpdb->callCount, 'Same SQL on a different site must be a cache miss due to different blog-ID key prefix.');
+
+        // Restore default blog ID for subsequent tests.
+        $GLOBALS['_starcache_test_blog_id'] = 1;
     }
 
     public function testQueryCacheVersionGroupQueriesDefaultsToOne(): void
