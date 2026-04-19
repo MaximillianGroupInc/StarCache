@@ -128,11 +128,25 @@ class StarCacheAdapter
                     if ($value === false && self::$connection->getResultCode() === \Memcached::RES_NOTFOUND) {
                         return false;
                     }
-                    return $value;
+                    // Value was stored as a serialized string; unserialize to recover the original.
+                    if (!is_string($value)) {
+                        return false;
+                    }
+                    $unserialized = unserialize($value, ['allowed_classes' => false]);
+                    return ($unserialized === false && $value !== serialize(false)) ? false : $unserialized;
 
                 case self::BACKEND_MEMCACHE:
-                    $value = self::$connection->get($key);
-                    return ($value === false) ? false : $value;
+                    // Memcache::get() returns false on miss AND when the stored value is literally
+                    // false. Values are stored serialized so a retrieved string is always a hit.
+                    $value = self::$connection->get($key); // @phpstan-ignore-line
+                    if ($value === false) {
+                        return false; // cache miss (serialized values are strings, never false)
+                    }
+                    if (!is_string($value)) {
+                        return false;
+                    }
+                    $unserialized = unserialize($value, ['allowed_classes' => false]);
+                    return ($unserialized === false && $value !== serialize(false)) ? false : $unserialized;
 
                 default:
                     $found = false;
@@ -166,11 +180,14 @@ class StarCacheAdapter
                     return (bool) self::$connection->set($key, $serialised);
 
                 case self::BACKEND_MEMCACHED:
-                    return self::$connection->set($key, $value, $expiration);
+                    // Serialize to mirror the Redis strategy and allow any PHP value
+                    // (including boolean false) to be stored and retrieved unambiguously.
+                    return self::$connection->set($key, serialize($value), $expiration);
 
                 case self::BACKEND_MEMCACHE:
-                    // Memcache::set($key, $value, $flags, $expire) — 0 = no compression
-                    return self::$connection->set($key, $value, 0, $expiration); // @phpstan-ignore-line
+                    // Memcache::set($key, $value, $flags, $expire) — 0 = no compression.
+                    // Serialize for the same reason as Memcached above.
+                    return self::$connection->set($key, serialize($value), 0, $expiration); // @phpstan-ignore-line
 
                 default:
                     return wp_cache_set($key, $value, $group, $expiration);
