@@ -105,7 +105,12 @@ class StarCacheKey
             self::saltSegment(),
         ];
 
-        return hash('sha256', implode('|', $segments));
+        $encodedSegments = array_map(
+            static fn (string $segment): string => strlen($segment) . ':' . $segment,
+            $segments
+        );
+
+        return hash('sha256', implode('|', $encodedSegments));
     }
 
     // =========================================================================
