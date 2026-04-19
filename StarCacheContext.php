@@ -84,6 +84,9 @@ class StarCacheContext
     /** Maximum length of a dimension value in characters (values are truncated). */
     public const MAX_DIMENSION_VALUE_LENGTH = 64;
 
+    /** Maximum length of a dimension name in characters. */
+    public const MAX_DIMENSION_NAME_LENGTH = 64;
+
     // -------------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------------
@@ -127,7 +130,7 @@ class StarCacheContext
         // character set [a-z0-9_:-] with a max length of 64.  Silently reject
         // invalid names so callers don't need to catch exceptions.
         $name = strtolower($name);
-        if ($name === '' || strlen($name) > 64 || !preg_match('/^[a-z0-9_:-]+$/', $name)) {
+        if ($name === '' || strlen($name) > self::MAX_DIMENSION_NAME_LENGTH || !preg_match('/^[a-z0-9_:-]+$/', $name)) {
             return;
         }
 
