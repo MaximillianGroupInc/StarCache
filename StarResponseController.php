@@ -222,8 +222,12 @@ class StarResponseController
 
     /**
      * Return true when Cache-Control or Expires is already set (upstream decision).
+     *
+     * Public so that StarPageCache can consult the same gate before persisting
+     * a captured response – preventing HTML from being stored when another plugin
+     * has already declared the response non-cacheable.
      */
-    private static function upstreamHeadersExist(): bool
+    public static function upstreamHeadersExist(): bool
     {
         foreach (headers_list() as $header) {
             $lower = strtolower($header);

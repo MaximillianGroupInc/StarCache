@@ -122,6 +122,15 @@ class StarCacheContext
         if (self::$locked) {
             return;
         }
+
+        // Normalize to lowercase, then validate the name against the documented
+        // character set [a-z0-9_:-] with a max length of 64.  Silently reject
+        // invalid names so callers don't need to catch exceptions.
+        $name = strtolower($name);
+        if ($name === '' || strlen($name) > 64 || !preg_match('/^[a-z0-9_:-]+$/', $name)) {
+            return;
+        }
+
         self::$registered[$name] = $allowedValues;
     }
 

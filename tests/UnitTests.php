@@ -240,6 +240,44 @@ class UnitTests extends TestCase
         $this->assertSame('', StarCacheContext::get('my_custom'));
     }
 
+    public function testContextRegistrationNormalizesNameToLowercase(): void
+    {
+        // Uppercase letters in the name should be folded to lowercase, making
+        // 'Locale' and 'locale' the same registered dimension.
+        StarCacheContext::register('Locale', ['en', 'fr']);
+        StarCacheContext::resolve();
+        StarCacheContext::set('locale', 'fr');
+        $this->assertSame('fr', StarCacheContext::get('locale'));
+    }
+
+    public function testContextRegistrationRejectsInvalidCharactersInName(): void
+    {
+        // Names with characters outside [a-z0-9_:-] must be silently rejected.
+        StarCacheContext::register('my dimension!', []);
+        StarCacheContext::resolve();
+        // The invalid name was not registered, so set() is a no-op.
+        StarCacheContext::set('my dimension!', 'val');
+        $this->assertSame('', StarCacheContext::get('my dimension!'));
+    }
+
+    public function testContextRegistrationRejectsEmptyName(): void
+    {
+        // Empty string is not a valid dimension name.
+        StarCacheContext::register('', []);
+        StarCacheContext::resolve();
+        // Nothing was registered; calling get('') returns the default.
+        $this->assertSame('', StarCacheContext::get(''));
+    }
+
+    public function testContextRegistrationRejectsNameExceedingMaxLength(): void
+    {
+        $longName = str_repeat('a', 65); // > 64 chars
+        StarCacheContext::register($longName, []);
+        StarCacheContext::resolve();
+        StarCacheContext::set($longName, 'val');
+        $this->assertSame('', StarCacheContext::get($longName));
+    }
+
     public function testContextRegistrationAllowsRegisteredDimension(): void
     {
         // Register before resolve
@@ -461,6 +499,17 @@ class UnitTests extends TestCase
     {
         define('DONOTCACHEPAGE', true);
         $this->assertTrue(StarPageCache::shouldBypass());
+    }
+
+    // =========================================================================
+    // StarResponseController — upstream header detection
+    // =========================================================================
+
+    public function testUpstreamHeadersExistReturnsFalseWhenNoHeaders(): void
+    {
+        // headers_list() returns an empty array in the CLI/test environment;
+        // upstreamHeadersExist() should therefore report no upstream headers.
+        $this->assertFalse(StarResponseController::upstreamHeadersExist());
     }
 
     // =========================================================================

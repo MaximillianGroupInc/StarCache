@@ -127,6 +127,15 @@ class StarPageCache
             }
         }
 
+        // Do not cache when another plugin/framework set Cache-Control or Expires.
+        // StarResponseController::apply() (running at send_headers) will correctly
+        // honour those upstream headers and skip the public-cache policy; storing
+        // the HTML here anyway would allow a later HIT response to bypass that
+        // upstream no-cache decision.
+        if (StarResponseController::upstreamHeadersExist()) {
+            return $html;
+        }
+
         $ttl     = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
         $payload = ['html' => $html, 'headers' => $headers, 'time' => time()];
 
