@@ -637,9 +637,6 @@ class UnitTests extends TestCase
 
         StarQueryCache::cachedWpdbQuery($sql); // MISS on site 2 — sc_sql_2_* is cold
         $this->assertSame(2, $wpdb->callCount, 'Same SQL on a different site must be a cache miss due to different blog-ID key prefix.');
-
-        // Restore default blog ID for subsequent tests.
-        $GLOBALS['_starcache_test_blog_id'] = 1;
     }
 
     public function testQueryCacheVersionGroupQueriesDefaultsToOne(): void
