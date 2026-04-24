@@ -203,7 +203,7 @@ class StarTransientCache
      */
     private static function logError(string $message, Exception $e): void
     {
-        if (class_exists('StarExceptionHandler')) {
+        if (class_exists('\StarExceptionHandler')) {
             $logger = \StarExceptionHandler::star_getInstance();
             $logger->star_handleException($e);
         } else {
