@@ -63,10 +63,10 @@ class StarResponseController
      * Idempotent – subsequent calls are no-ops once headers have been applied
      * or once headers_sent() returns true.
      *
-     * Called on the WordPress 'send_headers' action at priority 1, which runs
-     * early in the hook order before default-priority callbacks. The upstream
-     * header check below therefore only respects headers that have already been
-     * set before this callback executes.
+     * Called on the WordPress 'send_headers' action at priority 1. In WordPress,
+     * lower priority numbers run earlier, so this executes before default-priority
+     * (10) callbacks. The upstream header check therefore only catches headers that
+     * were already set before this callback runs.
      */
     public static function apply(): void
     {

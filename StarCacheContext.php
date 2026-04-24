@@ -141,7 +141,7 @@ class StarCacheContext
             $allowedValue = strtolower($allowedValue);
             $allowedValue = preg_replace('/[^a-z0-9_:-]/', '', $allowedValue);
 
-            if ($allowedValue === null) {
+            if ($allowedValue === '') {
                 continue;
             }
 
