@@ -250,6 +250,7 @@ class StarCacheContext
         if (!self::$resolved) {
             self::resolve();
         }
+        $dimension = strtolower($dimension);
         if (!array_key_exists($dimension, self::$registered)) {
             // Silently reject unregistered dimensions.
             return;
@@ -277,6 +278,7 @@ class StarCacheContext
         if (!self::$resolved) {
             self::resolve();
         }
+        $dimension = strtolower($dimension);
         return self::$dimensions[$dimension] ?? $default;
     }
 

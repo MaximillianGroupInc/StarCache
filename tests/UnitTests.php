@@ -250,6 +250,18 @@ class UnitTests extends TestCase
         $this->assertSame('fr', StarCacheContext::get('locale'));
     }
 
+    public function testSetAndGetNormalizeDimensionNameToLowercase(): void
+    {
+        // set() and get() must normalize $dimension to lowercase so that
+        // 'Locale', 'LOCALE', and 'locale' all refer to the same dimension.
+        StarCacheContext::register('locale', ['en', 'fr']);
+        StarCacheContext::resolve();
+
+        StarCacheContext::set('LOCALE', 'fr');
+        $this->assertSame('fr', StarCacheContext::get('LOCALE'), 'get() with uppercase name must match lowercase key');
+        $this->assertSame('fr', StarCacheContext::get('locale'), 'get() with lowercase name must return same value');
+    }
+
     public function testContextRegistrationRejectsInvalidCharactersInName(): void
     {
         // Names with characters outside [a-z0-9_:-] must be silently rejected.
