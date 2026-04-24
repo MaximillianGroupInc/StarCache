@@ -134,7 +134,34 @@ class StarCacheContext
             return;
         }
 
-        self::$registered[$name] = $allowedValues;
+        // Normalize allowed values to the same canonical form used for runtime
+        // values so allow-list checks and fallback values remain consistent.
+        $normalizedAllowedValues = [];
+        foreach ($allowedValues as $allowedValue) {
+            $allowedValue = strtolower($allowedValue);
+            $allowedValue = preg_replace('/[^a-z0-9_:-]/', '', $allowedValue);
+
+            if ($allowedValue === null) {
+                continue;
+            }
+
+            $allowedValue = substr($allowedValue, 0, self::MAX_DIMENSION_VALUE_LENGTH);
+            if ($allowedValue === '') {
+                continue;
+            }
+
+            $normalizedAllowedValues[] = $allowedValue;
+        }
+
+        $normalizedAllowedValues = array_values(array_unique($normalizedAllowedValues));
+
+        // If the caller explicitly provided an allow-list, require at least one
+        // valid normalized value rather than silently broadening acceptance.
+        if ($allowedValues !== [] && $normalizedAllowedValues === []) {
+            return;
+        }
+
+        self::$registered[$name] = $normalizedAllowedValues;
     }
 
     // -------------------------------------------------------------------------
