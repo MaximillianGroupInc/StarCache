@@ -107,11 +107,14 @@ namespace StarCache {
     add_action('init', [StarPageCache::class, 'startPageCache'], 1);
 
     // Step 4: Lock context and apply cache-control headers just before output.
-    //   'send_headers' fires before wp_head(), after the query is determined.
+    //   Priority 999 means this runs AFTER all default-priority (10) plugin
+    //   callbacks on 'send_headers', so the upstream-header gate in
+    //   StarResponseController::apply() can reliably detect headers set by
+    //   WooCommerce, REST API, and other plugins.
     add_action('send_headers', static function (): void {
         StarCacheContext::lock();
         StarResponseController::apply();
-    }, 1);
+    }, 999);
 
     // -------------------------------------------------------------------------
     // Cache invalidation — version bumps, not direct deletion

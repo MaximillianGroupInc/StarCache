@@ -127,12 +127,13 @@ class StarPageCache
             }
         }
 
-        // Do not cache when another plugin/framework set Cache-Control or Expires.
-        // StarResponseController::apply() (running at send_headers) will correctly
-        // honor those upstream headers and skip the public-cache policy; storing
-        // the HTML here anyway would allow a later HIT response to bypass that
-        // upstream no-cache decision.
-        if (StarResponseController::upstreamHeadersExist()) {
+        // Do not cache when another plugin/framework set Cache-Control or Expires
+        // BEFORE StarResponseController ran. We check the state captured at apply()
+        // time rather than calling upstreamHeadersExist() directly, because by the
+        // time this ob callback fires (PHP shutdown), StarCache's own Cache-Control
+        // header is already in headers_list() — a direct check would always return
+        // true and prevent any page from being stored.
+        if (StarResponseController::hadUpstreamHeadersBeforeApply()) {
             return $html;
         }
 
@@ -188,11 +189,12 @@ class StarPageCache
      *       StarPageCache::saveFragment('sidebar');
      *   }
      *
+     * The TTL is specified on the paired saveFragment() call, not here.
+     *
      * @param string $name  Unique fragment identifier.
-     * @param int    $ttl   Time-to-live in seconds.
      * @return bool  True if cached content was echoed; false if caller must render.
      */
-    public static function getFragment(string $name, int $ttl = self::TTL_FRAG): bool
+    public static function getFragment(string $name): bool
     {
         $key    = self::buildFragmentKey($name);
         $cached = StarCacheAdapter::get($key, self::GROUP_FRAG);
@@ -372,6 +374,10 @@ class StarPageCache
         $port = defined('VARNISH_PORT') ? (int) VARNISH_PORT : self::VARNISH_PORT;
 
         $parsed      = wp_parse_url($url);
+        if (!is_array($parsed)) {
+            error_log('[StarCache] Varnish PURGE skipped: malformed URL – ' . $url);
+            return;
+        }
         $path        = ($parsed['path'] ?? '/');
         $requestHost = $parsed['host'] ?? ($_SERVER['HTTP_HOST'] ?? 'localhost');
 

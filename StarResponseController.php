@@ -53,6 +53,16 @@ class StarResponseController
     /** @var bool Whether headers have been applied for this request. */
     private static bool $applied = false;
 
+    /**
+     * Whether upstream Cache-Control/Expires headers existed at the moment
+     * apply() ran — captured BEFORE StarCache sets its own headers.
+     *
+     * null = apply() has not been called yet.
+     *
+     * @var bool|null
+     */
+    private static ?bool $hadUpstreamHeaders = null;
+
     // -------------------------------------------------------------------------
     // Public API
     // -------------------------------------------------------------------------
@@ -63,16 +73,24 @@ class StarResponseController
      * Idempotent – subsequent calls are no-ops once headers have been applied
      * or once headers_sent() returns true.
      *
-     * Called on the WordPress 'send_headers' action at priority 1. In WordPress,
-     * lower priority numbers run earlier, so this executes before default-priority
-     * (10) callbacks. The upstream header check therefore only catches headers that
-     * were already set before this callback runs.
+     * Called on the WordPress 'send_headers' action at priority 999 so it runs
+     * AFTER default-priority (10) plugin/theme callbacks. This ensures that
+     * upstream Cache-Control/Expires decisions made by other plugins are already
+     * present in headers_list() when Gate 4 executes, making the upstream-header
+     * gate reliable.
      */
     public static function apply(): void
     {
         if (self::$applied || headers_sent()) {
             return;
         }
+
+        // Capture upstream state BEFORE StarCache sets any headers of its own.
+        // StarPageCache::capturePageOutput() (ob callback, runs at PHP shutdown)
+        // uses hadUpstreamHeadersBeforeApply() so it does not mistake StarCache's
+        // own Cache-Control for an upstream no-cache decision.
+        self::$hadUpstreamHeaders = self::upstreamHeadersExist();
+
         self::$applied = true;
 
         // Gate 1: authenticated users are NEVER served cached content
@@ -186,6 +204,7 @@ class StarResponseController
     public static function reset(): void
     {
         self::$applied = false;
+        self::$hadUpstreamHeaders = null;
     }
 
     // -------------------------------------------------------------------------
@@ -219,6 +238,21 @@ class StarResponseController
         header('Cache-Control: no-store, no-cache, must-revalidate');
         header('Pragma: no-cache');
         header('X-Cache: BYPASS');
+    }
+
+    /**
+     * Return true when Cache-Control or Expires was already set by an upstream
+     * plugin at the time apply() ran — i.e. BEFORE StarCache set its own headers.
+     *
+     * Use this in ob callbacks (e.g. capturePageOutput) where StarCache's own
+     * Cache-Control is already in headers_list() and calling upstreamHeadersExist()
+     * directly would always return true.
+     *
+     * Returns false if apply() has not been called yet.
+     */
+    public static function hadUpstreamHeadersBeforeApply(): bool
+    {
+        return self::$hadUpstreamHeaders ?? false;
     }
 
     /**

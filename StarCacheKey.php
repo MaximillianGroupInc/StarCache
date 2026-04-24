@@ -257,6 +257,11 @@ class StarCacheKey
      * Convenience: generate a network-wide (blog-agnostic) cache key for
      * data that should be shared across all sites in a multisite network.
      *
+     * Intentionally omits blogSegment(), contextSegment(), and versionSegment()
+     * because those are all site/request-dependent: including them would produce
+     * a different key on every blog or in every context bucket, defeating the
+     * network-wide sharing purpose.
+     *
      * @param string      $reference
      * @param string|null $userId
      * @return string 64-character hex cache key.
@@ -271,8 +276,6 @@ class StarCacheKey
             self::DEFAULT_NAMESPACE . ':network',
             self::userSegment($userId),
             self::referenceSegment($reference),
-            self::contextSegment(),
-            self::versionSegment(StarVersionStore::GROUP_OBJECTS),
             self::saltSegment(),
         ];
 
