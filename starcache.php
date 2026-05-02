@@ -170,6 +170,7 @@ namespace StarCache {
     add_action('init', [StarAssetMinifier::class, 'init'], 5);
     add_action('wp_print_styles', [StarAssetMinifier::class, 'processStyles'], 5);
     add_action('wp_print_scripts', [StarAssetMinifier::class, 'processScripts'], 5);
+    add_action(StarAssetMinifier::CRON_HOOK, [StarAssetMinifier::class, 'buildAssetFromCron'], 10, 3);
 
     add_action('upgrader_process_complete', [StarAssetMinifier::class, 'flushAssets']);
     add_action('switch_theme', [StarAssetMinifier::class, 'flushAssets']);

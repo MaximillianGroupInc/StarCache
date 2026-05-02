@@ -273,6 +273,20 @@ if (!function_exists('admin_url')) {
     }
 }
 
+if (!function_exists('wp_schedule_single_event')) {
+    function wp_schedule_single_event(int $timestamp, string $hook, array $args = []): bool
+    {
+        return true;
+    }
+}
+
+if (!function_exists('wp_next_scheduled')) {
+    function wp_next_scheduled(string $hook, array $args = []): int|false
+    {
+        return false;
+    }
+}
+
 if (!class_exists('WP_Post')) {
     // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
     class WP_Post

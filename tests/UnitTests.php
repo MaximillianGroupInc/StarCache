@@ -493,6 +493,79 @@ class UnitTests extends TestCase
         $this->assertSame('var x = 1;', $minified);
     }
 
+    public function testBuildAssetFromCronWritesMinifiedCssFile(): void
+    {
+        $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
+        mkdir($dir, 0755, true);
+
+        $srcPath  = $dir . '/style.css';
+        $destPath = $dir . '/style.min.css';
+
+        file_put_contents($srcPath, "/* comment */ body { color : red ; } ");
+
+        StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'css');
+
+        $this->assertFileExists($destPath);
+        $content = (string) file_get_contents($destPath);
+        $this->assertStringNotContainsString('/* comment */', $content);
+        $this->assertStringContainsString('color:red', $content);
+
+        // Clean up
+        unlink($srcPath);
+        unlink($destPath);
+        rmdir($dir);
+    }
+
+    public function testBuildAssetFromCronWritesNormalizedJsFile(): void
+    {
+        $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
+        mkdir($dir, 0755, true);
+
+        $srcPath  = $dir . '/app.js';
+        $destPath = $dir . '/app.min.js';
+
+        file_put_contents($srcPath, "  var x = 1;  \n");
+
+        StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'js');
+
+        $this->assertFileExists($destPath);
+        $content = (string) file_get_contents($destPath);
+        $this->assertSame('var x = 1;', $content);
+
+        // Clean up
+        unlink($srcPath);
+        unlink($destPath);
+        rmdir($dir);
+    }
+
+    public function testBuildAssetFromCronSkipsWhenDestAlreadyExists(): void
+    {
+        $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
+        mkdir($dir, 0755, true);
+
+        $srcPath  = $dir . '/style.css';
+        $destPath = $dir . '/style.min.css';
+
+        file_put_contents($srcPath, 'body { color: blue }');
+        file_put_contents($destPath, 'original_content');
+
+        StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'css');
+
+        // The existing file should not be overwritten
+        $this->assertSame('original_content', (string) file_get_contents($destPath));
+
+        // Clean up
+        unlink($srcPath);
+        unlink($destPath);
+        rmdir($dir);
+    }
+
+    public function testBuildAssetFromCronSkipsUnreadableSource(): void
+    {
+        StarAssetMinifier::buildAssetFromCron('/nonexistent/path/style.css', '/tmp/out.min.css', 'css');
+        $this->assertFileDoesNotExist('/tmp/out.min.css');
+    }
+
     // =========================================================================
     // StarPageCache — bypass detection
     // =========================================================================

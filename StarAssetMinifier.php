@@ -37,6 +37,16 @@ namespace StarCache;
  */
 class StarAssetMinifier
 {
+    /**
+     * WP-Cron hook name used to schedule asynchronous asset builds.
+     *
+     * Arguments passed to the event: (string $localPath, string $destPath, string $type).
+     * The cron callback {@see self::buildAssetFromCron()} is the only place that
+     * performs blocking file I/O for minification — it never runs during a
+     * frontend page request.
+     */
+    public const CRON_HOOK = 'starcache_build_asset';
+
     /** @var string Filesystem path to the asset cache directory. */
     private static string $cacheDir = '';
 
@@ -184,6 +194,50 @@ class StarAssetMinifier
     }
 
     // -------------------------------------------------------------------------
+    // Asynchronous build (WP-Cron callback)
+    // -------------------------------------------------------------------------
+
+    /**
+     * WP-Cron callback: minify a single asset and write it to the cache dir.
+     *
+     * This is the **only** method in StarAssetMinifier that performs blocking
+     * file I/O for minification.  It runs in a background WP-Cron request that
+     * is spawned after the first cache miss, never during a live frontend page
+     * request.  Subsequent frontend requests for the same asset will find the
+     * file already on disk and swap the src immediately (the hot path in
+     * {@see self::processAsset()}).
+     *
+     * @param string $localPath  Absolute filesystem path of the source asset.
+     * @param string $destPath   Absolute filesystem path of the minified target.
+     * @param string $type       'css' or 'js'.
+     */
+    public static function buildAssetFromCron(string $localPath, string $destPath, string $type): void
+    {
+        if (!is_readable($localPath)) {
+            return;
+        }
+
+        // Bail if another process already wrote the file between scheduling and now.
+        if (file_exists($destPath)) {
+            return;
+        }
+
+        $source = file_get_contents($localPath);
+        if ($source === false) {
+            return;
+        }
+
+        $minified = ($type === 'css') ? self::minifyCss($source) : self::normalizeJs($source);
+
+        // Write atomically via temp file so partial writes are never visible.
+        $tmpPath = $destPath . '.tmp';
+        if (file_put_contents($tmpPath, $minified) === false) {
+            return;
+        }
+        rename($tmpPath, $destPath);
+    }
+
+    // -------------------------------------------------------------------------
     // Cache management
     // -------------------------------------------------------------------------
 
@@ -250,26 +304,19 @@ class StarAssetMinifier
         $destPath = self::$cacheDir . '/' . $fileName;
         $destUrl  = self::$cacheUrl . '/' . $fileName;
 
-        // Create minified file if it doesn't exist yet
         if (!file_exists($destPath)) {
-            $source    = file_get_contents($localPath);
-            if ($source === false) {
-                return;
+            // Hot path not yet warm — schedule a background WP-Cron build so
+            // the minified file will be ready for the next request.  Serve the
+            // original, unmodified asset for this request (no blocking I/O).
+            if (!wp_next_scheduled(self::CRON_HOOK, [$localPath, $destPath, $type])) {
+                wp_schedule_single_event(time(), self::CRON_HOOK, [$localPath, $destPath, $type]);
             }
-            $minified  = ($type === 'css') ? self::minifyCss($source) : self::normalizeJs($source);
-
-            // Write atomically via temp file
-            $tmpPath = $destPath . '.tmp';
-            if (file_put_contents($tmpPath, $minified) === false) {
-                return;
-            }
-            rename($tmpPath, $destPath);
+            return;
         }
 
-        // Replace src in the dependency object
+        // Minified file already exists — swap src and bump the version so
+        // browsers and CDNs re-fetch after any cache is cleared.
         $deps->registered[$handle]->src = $destUrl;
-
-        // Bump the version so browsers re-fetch after any cache is cleared
         $deps->registered[$handle]->ver = $mtime;
     }
 
