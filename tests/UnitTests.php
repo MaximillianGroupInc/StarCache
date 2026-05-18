@@ -379,12 +379,12 @@ class UnitTests extends TestCase
         $this->assertSame(1, StarVersionStore::get(StarVersionStore::GROUP_QUERIES));
     }
 
-    public function testVersionBumpIncrementsVersion(): void
+    public function testVersionBumpAdvancesVersion(): void
     {
         $group  = 'test_group_' . uniqid();
         $before = StarVersionStore::get($group);
         $newVer = StarVersionStore::bump($group);
-        $this->assertSame($before + 1, $newVer);
+        $this->assertGreaterThan($before, $newVer);
         $this->assertSame($newVer, StarVersionStore::get($group));
     }
 
@@ -654,6 +654,39 @@ class UnitTests extends TestCase
         $this->assertSame(['computed' => true], $first);
         $this->assertSame(['computed' => true], $second);
         $this->assertSame(1, $callCount, 'Callback must not be called twice.');
+    }
+
+    public function testRememberCachesFalseValue(): void
+    {
+        $cache     = new StarCache();
+        $callCount = 0;
+        $callback  = static function () use (&$callCount): bool {
+            $callCount++;
+            return false;
+        };
+
+        $first  = $cache->star_remember('test_remember_false', $callback, 60);
+        $second = $cache->star_remember('test_remember_false', $callback, 60);
+
+        $this->assertFalse($first);
+        $this->assertFalse($second);
+        $this->assertSame(1, $callCount, 'False values must be cached and reused.');
+    }
+
+    public function testGetCachedDataFoundFlagDistinguishesFalseHitFromMiss(): void
+    {
+        $cache = new StarCache();
+        $cache->star_setCachedData(false, 'test_false_value');
+
+        $found = null;
+        $value = $cache->star_getCachedData('test_false_value', null, $found);
+        $this->assertFalse($value);
+        $this->assertTrue($found);
+
+        $foundMiss = null;
+        $missValue = $cache->star_getCachedData('test_false_miss', null, $foundMiss);
+        $this->assertFalse($missValue);
+        $this->assertFalse($foundMiss);
     }
 
     public function testRememberPropagatesCallbackException(): void

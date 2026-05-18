@@ -83,8 +83,8 @@ class StarVersionStore
      */
     public static function bump(string $group): int
     {
-        $newVersion = self::get($group) + 1;
-        StarCacheAdapter::set(self::buildKey($group), $newVersion, 0, self::CACHE_GROUP);
+        $key        = self::buildKey($group);
+        $newVersion = self::atomicBump($key);
         do_action('starcache_version_bumped', $group, $newVersion);
         return $newVersion;
     }
@@ -124,6 +124,50 @@ class StarVersionStore
     private static function buildKey(string $group): string
     {
         $blogId = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
-        return self::KEY_PREFIX . $blogId . '_' . md5($group);
+        return self::KEY_PREFIX . $blogId . '_' . hash('sha256', $group);
+    }
+
+    /**
+     * Atomically bump a version key when backend support exists.
+     * Falls back to hrtime(true) without read-modify-write.
+     */
+    private static function atomicBump(string $key): int
+    {
+        $backend    = StarCacheAdapter::getBackend();
+        $connection = StarCacheAdapter::getConnection();
+
+        if ($backend === StarCacheAdapter::BACKEND_REDIS && $connection instanceof \Redis) {
+            $connection->setNx($key, self::INITIAL_VER);
+            $result = $connection->incr($key);
+            if (is_int($result)) {
+                return $result;
+            }
+        }
+
+        if ($backend === StarCacheAdapter::BACKEND_MEMCACHED && $connection instanceof \Memcached) {
+            $result = $connection->increment($key, 1, self::INITIAL_VER + 1, 0);
+            if (is_int($result)) {
+                return $result;
+            }
+        }
+
+        if ($backend === StarCacheAdapter::BACKEND_MEMCACHE && $connection instanceof \Memcache) {
+            $connection->add($key, self::INITIAL_VER, 0, 0);
+            $result = $connection->increment($key, 1);
+            if ($result !== false) {
+                return (int) $result;
+            }
+        }
+
+        if (function_exists('wp_cache_incr')) {
+            $result = wp_cache_incr($key, 1, self::CACHE_GROUP);
+            if (is_int($result)) {
+                return $result;
+            }
+        }
+
+        $newVersion = hrtime(true);
+        StarCacheAdapter::set($key, $newVersion, 0, self::CACHE_GROUP);
+        return $newVersion;
     }
 }

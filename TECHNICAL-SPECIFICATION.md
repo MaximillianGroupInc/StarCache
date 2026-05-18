@@ -56,11 +56,11 @@ init (priority 1)
       Output buffering begins AFTER context and adapter are ready.
       Context is already locked into the key at this point.
 
-send_headers (priority 1)
+send_headers (priority 999)
     → StarCacheContext::lock()
     → StarResponseController::apply()
       Context locked --- no further dimension changes accepted.
-      Cache-Control headers applied based on locked context.
+      Cache-Control headers applied after upstream plugins/themes set theirs.
 
 save_post / transition_post_status
     → StarPageCache::purgeOnSave()
@@ -126,7 +126,7 @@ experiment --- [a-z0-9_] string                  (cookie-derived, sanitized)
 ```
 resolve()  --- called at plugins_loaded priority 0. Idempotent.
 set()      --- adds or overrides a dimension. No-op after lock().
-lock()     --- called at send_headers priority 1. Freezes dimensions.
+lock()     --- called at send_headers priority 999. Freezes dimensions.
 hash()     --- SHA-256 of all non-auth dimensions, ksort for determinism.
 shouldBypass() --- returns true when auth = 'authenticated'.
 reset()    --- test use only. Clears all state.
@@ -347,12 +347,13 @@ StarResponseController --- HTTP Response Headers
 
 ```
 1\. Check StarCacheContext::shouldBypass() --- authenticated = no cache headers
-2. Check request method --- non-GET = no cache headers
-3. Check existing headers --- never override Cache-Control already set
-4. Check WooCommerce --- cart/checkout pages = no-cache
-5. Apply Cache-Control: public, max-age={ttl}, s-maxage={cdn_ttl}
-6. Apply Vary: Cookie, Accept-Encoding (plus context-driven Vary values)
-7. Apply X-StarCache-Context: {context_hash} (debug header)
+2. Check request method --- non-GET/HEAD = no cache headers
+3. Check DONOTCACHEPAGE --- explicit no-cache flag wins
+4. Check existing headers --- never override Cache-Control/Expires already set
+5. Check `starcache_bypass_page_cache` filter --- plugin/theme opt-out
+6. Apply Cache-Control: public, max-age={ttl}, stale-while-revalidate={swr}
+7. Apply Vary: Cookie, Accept-Encoding (plus context-driven Vary values)
+8. Apply X-StarCache-Context: {context_hash} (debug header)
 
 ```
 

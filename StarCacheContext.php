@@ -317,8 +317,12 @@ class StarCacheContext
         $keyDimensions = self::$dimensions;
         unset($keyDimensions[self::DIM_AUTH]); // Auth = bypass signal, not a cache variant
 
-        ksort($keyDimensions); // Deterministic order
-        return hash('sha256', serialize($keyDimensions));
+        ksort($keyDimensions, SORT_STRING); // Deterministic order
+        $json = json_encode($keyDimensions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            $json = '{}';
+        }
+        return hash('sha256', $json);
     }
 
     /**
@@ -417,8 +421,8 @@ class StarCacheContext
 
         // 4. Cap dimension count.
         if (count($clean) > self::MAX_DIMENSIONS) {
-            error_log(sprintf(
-                '[StarCache] Context dimension count (%d) exceeds MAX_DIMENSIONS (%d). Excess dropped.',
+            self::logMessage(sprintf(
+                'Context dimension count (%d) exceeds MAX_DIMENSIONS (%d). Excess dropped.',
                 count($clean),
                 self::MAX_DIMENSIONS
             ));
@@ -445,5 +449,19 @@ class StarCacheContext
         }
 
         return $sanitized;
+    }
+
+    /**
+     * Log a context warning via StarExceptionHandler when available.
+     */
+    private static function logMessage(string $message): void
+    {
+        $exception = new \RuntimeException($message);
+        if (class_exists('\StarExceptionHandler')) {
+            $logger = \StarExceptionHandler::star_getInstance();
+            $logger->star_handleException($exception);
+        } else {
+            error_log("[StarCache] {$message}");
+        }
     }
 }

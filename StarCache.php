@@ -32,7 +32,7 @@ use Exception;
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.0.0
+ * @version 2.1.1
  * @license Apache 2.0
  */
 class StarCache
@@ -86,17 +86,21 @@ class StarCache
      *
      * @param  string      $reference  Feature / table name.
      * @param  string|null $userId     Optional user identifier.
+     * @param  bool|null   $found      Optional hit flag (true = cache hit, false = cache miss).
      * @return mixed  Cached value or false on miss / error.
      */
-    public function star_getCachedData(string $reference, ?string $userId = null): mixed
+    public function star_getCachedData(string $reference, ?string $userId = null, ?bool &$found = null): mixed
     {
         try {
             $key   = $this->buildKey($reference, $userId);
             $group = $this->star_getUserGroup($reference, $userId);
+            $hit   = StarCacheAdapter::getWithFound($key, $group);
+            $found = $hit['found'];
 
-            return StarCacheAdapter::get($key, $group);
+            return $hit['found'] ? $hit['value'] : false;
         } catch (Exception $e) {
             $this->logError('Error getting cached data', $e);
+            $found = false;
             return false;
         }
     }
@@ -176,8 +180,9 @@ class StarCache
      */
     public function star_remember(string $reference, callable $callback, int $ttl = 0, ?string $userId = null): mixed
     {
-        $cached = $this->star_getCachedData($reference, $userId);
-        if ($cached !== false) {
+        $found  = false;
+        $cached = $this->star_getCachedData($reference, $userId, $found);
+        if ($found) {
             return $cached;
         }
 

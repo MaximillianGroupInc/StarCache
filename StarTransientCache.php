@@ -20,7 +20,7 @@ use Exception;
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.0.0
+ * @version 2.1.1
  * @license Apache 2.0
  */
 class StarTransientCache
