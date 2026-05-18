@@ -60,7 +60,7 @@ send_headers (priority 999)
     → StarCacheContext::lock()
     → StarResponseController::apply()
       Context locked --- no further dimension changes accepted.
-      Cache-Control headers applied after upstream plugins/themes set theirs.
+      Cache-Control policy evaluated after upstream plugins/themes set theirs.
 
 save_post / transition_post_status
     → StarPageCache::purgeOnSave()
