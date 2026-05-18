@@ -395,7 +395,7 @@ class StarCacheAdapter
             $logger = \StarExceptionHandler::star_getInstance();
             $logger->star_handleException($e);
         } else {
-            error_log("[StarCache] {$context}: {$e->getMessage()}\n{$e->getTraceAsString()}");
+            error_log("[StarCache] {$context}: {$e->getMessage()}");
         }
     }
 }
