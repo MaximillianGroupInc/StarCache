@@ -318,6 +318,8 @@ class StarCacheContext
         unset($keyDimensions[self::DIM_AUTH]); // Auth = bypass signal, not a cache variant
 
         ksort($keyDimensions, SORT_STRING); // Deterministic order
+        // JSON provides a more portable, cross-version-stable representation than
+        // serialize(); this intentionally changes context hashes (cold-cache once).
         $json = json_encode($keyDimensions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
             self::logMessage('Failed to encode context dimensions as JSON: ' . json_last_error_msg());
