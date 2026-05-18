@@ -322,7 +322,7 @@ class StarCacheContext
         // serialize(); this intentionally changes context hashes (cold-cache once).
         $json = json_encode($keyDimensions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
-            self::logMessage('Failed to encode context dimensions as JSON: ' . json_last_error_msg());
+            self::logMessage('Failed to encode context dimensions as JSON, using empty object fallback: ' . json_last_error_msg());
             $json = '{}';
         }
         return hash('sha256', $json);

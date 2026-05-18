@@ -56,7 +56,7 @@ init (priority 1)
       Output buffering begins AFTER context and adapter are ready.
       Context is already locked into the key at this point.
 
-send_headers (priority 999)
+send_headers (priority 999, late)
     → StarCacheContext::lock()
     → StarResponseController::apply()
       Context locked --- no further dimension changes accepted.

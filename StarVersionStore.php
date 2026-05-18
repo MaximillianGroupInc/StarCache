@@ -167,7 +167,7 @@ class StarVersionStore
         }
 
         // Fallback remains race-free without read-modify-write: each writer stores
-        // its own monotonic high-resolution timestamp (nanoseconds).
+        // a high-resolution timestamp version (nanoseconds), not a strict +1 counter.
         $newVersion = hrtime(true);
         StarCacheAdapter::set($key, $newVersion, 0, self::CACHE_GROUP);
         return $newVersion;
