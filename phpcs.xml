@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<ruleset name="StarCache PSR-12">
+    <description>PSR-12 coding standards for StarCache</description>
+
+    <!-- Check these files/directories -->
+    <file>StarCache.php</file>
+    <file>StarCacheAdapter.php</file>
+    <file>StarCacheContext.php</file>
+    <file>StarCacheKey.php</file>
+    <file>StarPageCache.php</file>
+    <file>StarQueryCache.php</file>
+    <file>StarResponseController.php</file>
+    <file>StarTransientCache.php</file>
+    <file>StarVersionStore.php</file>
+    <file>StarAssetMinifier.php</file>
+    <file>starcache.php</file>
+    <file>tests/</file>
+
+    <rule ref="PSR12">
+        <!--
+            StarCache uses the star_* method-name prefix as a deliberate API
+            convention to avoid naming collisions in the WordPress global namespace.
+            This prefix pre-dates PSR-12 and is part of the published public API.
+            Renaming these methods is a breaking change and is not in scope.
+        -->
+        <exclude name="PSR1.Methods.CamelCapsMethodName"/>
+
+        <!--
+            starcache.php is the MU-Plugin entry point. It must both declare the
+            helper functions and execute side effects (hook registration) in the
+            same file. This is an intentional exception for WordPress MU-Plugins.
+        -->
+        <exclude name="PSR1.Files.SideEffects.FoundWithSymbols"/>
+    </rule>
+
+    <!--
+        tests/bootstrap.php provides WordPress stub classes (WP_Post, WP_Error etc.)
+        in the global namespace so that StarCache code can type-hint against them
+        without requiring a full WordPress install. PSR-1 class/namespace rules
+        don't apply to these test infrastructure stubs.
+    -->
+    <rule ref="PSR1.Classes.ClassDeclaration.MissingNamespace">
+        <exclude-pattern>tests/bootstrap.php</exclude-pattern>
+    </rule>
+    <rule ref="Squiz.Classes.ValidClassName.NotCamelCaps">
+        <exclude-pattern>tests/bootstrap.php</exclude-pattern>
+    </rule>
+
+    <!-- Allow slightly longer lines — WordPress hook calls can be verbose -->
+    <rule ref="Generic.Files.LineLength">
+        <properties>
+            <property name="lineLimit" value="120"/>
+            <property name="absoluteLineLimit" value="160"/>
+        </properties>
+    </rule>
+</ruleset>
