@@ -128,46 +128,15 @@ class StarVersionStore
     }
 
     /**
-     * Atomically bump a version key when backend support exists.
-     * Falls back to hrtime(true) without read-modify-write.
+     * Bump a version key using the adapter storage format.
+     *
+     * Version keys may already exist as adapter-serialized values, so backend-
+     * specific raw counter APIs (`incr`/`increment`) are not safe here. Instead,
+     * store a fresh high-resolution timestamp through the adapter so reads and
+     * writes always use the same format.
      */
     private static function atomicBump(string $key): int
     {
-        $backend    = StarCacheAdapter::getBackend();
-        $connection = StarCacheAdapter::getConnection();
-
-        if ($backend === StarCacheAdapter::BACKEND_REDIS && $connection instanceof \Redis) {
-            $connection->setNx($key, self::INITIAL_VER);
-            $result = $connection->incr($key);
-            if (is_int($result)) {
-                return $result;
-            }
-        }
-
-        if ($backend === StarCacheAdapter::BACKEND_MEMCACHED && $connection instanceof \Memcached) {
-            $result = $connection->increment($key, 1, self::INITIAL_VER + 1, 0);
-            if (is_int($result)) {
-                return $result;
-            }
-        }
-
-        if ($backend === StarCacheAdapter::BACKEND_MEMCACHE && $connection instanceof \Memcache) {
-            $connection->add($key, self::INITIAL_VER, 0, 0);
-            $result = $connection->increment($key, 1);
-            if ($result !== false) {
-                return (int) $result;
-            }
-        }
-
-        if (function_exists('wp_cache_incr')) {
-            $result = wp_cache_incr($key, 1, self::CACHE_GROUP);
-            if (is_int($result)) {
-                return $result;
-            }
-        }
-
-        // Fallback remains race-free without read-modify-write: each writer stores
-        // a high-resolution timestamp version (nanoseconds), not a strict +1 counter.
         $newVersion = hrtime(true);
         StarCacheAdapter::set($key, $newVersion, 0, self::CACHE_GROUP);
         return $newVersion;
