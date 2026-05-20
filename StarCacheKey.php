@@ -106,8 +106,9 @@ class StarCacheKey
         ];
 
         $encodedSegments = array_map(
-            // Use the same length-prefixed segment encoding as build() so delimiter
-            // collisions cannot make different segment sets hash the same payload.
+            // Keep this length-prefixed segment encoding consistent with the
+            // backward-compatible star_getCacheKey() path so delimiter collisions
+            // cannot make different segment sets hash the same payload.
             static fn (string $segment): string => strlen($segment) . ':' . $segment,
             $segments
         );
