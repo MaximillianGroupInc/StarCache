@@ -18,7 +18,8 @@ namespace StarCache;
  * 3. DONOTCACHEPAGE defined and truthy → no-cache
  * 4. Cache-Control or Expires header already present → do nothing
  *    (respects upstream decisions made by plugins, WooCommerce, REST API, etc.)
- * 5. Otherwise → apply the configured public-cache policy
+ * 5. starcache_bypass_page_cache filter returns true → no-cache
+ * 6. Otherwise → apply the configured public-cache policy
  *
  * Default policy
  * --------------
@@ -35,7 +36,7 @@ namespace StarCache;
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.1.0
+ * @version 2.1.1
  * @license Apache 2.0
  */
 class StarResponseController

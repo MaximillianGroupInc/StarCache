@@ -83,8 +83,8 @@ class StarVersionStore
      */
     public static function bump(string $group): int
     {
-        $newVersion = self::get($group) + 1;
-        StarCacheAdapter::set(self::buildKey($group), $newVersion, 0, self::CACHE_GROUP);
+        $key        = self::buildKey($group);
+        $newVersion = self::atomicBump($key);
         do_action('starcache_version_bumped', $group, $newVersion);
         return $newVersion;
     }
@@ -124,6 +124,21 @@ class StarVersionStore
     private static function buildKey(string $group): string
     {
         $blogId = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
-        return self::KEY_PREFIX . $blogId . '_' . md5($group);
+        return self::KEY_PREFIX . $blogId . '_' . hash('sha256', $group);
+    }
+
+    /**
+     * Bump a version key using the adapter storage format.
+     *
+     * Version keys may already exist as adapter-serialized values, so backend-
+     * specific raw counter APIs (`incr`/`increment`) are not safe here. Instead,
+     * store a fresh high-resolution timestamp through the adapter so reads and
+     * writes always use the same format.
+     */
+    private static function atomicBump(string $key): int
+    {
+        $newVersion = hrtime(true);
+        StarCacheAdapter::set($key, $newVersion, 0, self::CACHE_GROUP);
+        return $newVersion;
     }
 }

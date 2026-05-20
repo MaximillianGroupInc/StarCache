@@ -106,6 +106,9 @@ class StarCacheKey
         ];
 
         $encodedSegments = array_map(
+            // Keep this length-prefixed segment encoding consistent with the
+            // backward-compatible star_getCacheKey() path so delimiter collisions
+            // cannot make different segment sets hash the same payload.
             static fn (string $segment): string => strlen($segment) . ':' . $segment,
             $segments
         );
@@ -268,10 +271,6 @@ class StarCacheKey
      */
     public function star_getNetworkKey(string $reference, ?string $userId = null): string
     {
-        if ($reference === '') {
-            throw new \InvalidArgumentException('StarCacheKey: $reference must be a non-empty string.');
-        }
-
         $segments = [
             self::DEFAULT_NAMESPACE . ':network',
             self::userSegment($userId),
@@ -279,6 +278,11 @@ class StarCacheKey
             self::saltSegment(),
         ];
 
-        return hash('sha256', implode('|', $segments));
+        $encodedSegments = array_map(
+            static fn (string $segment): string => strlen($segment) . ':' . $segment,
+            $segments
+        );
+
+        return hash('sha256', implode('|', $encodedSegments));
     }
 }

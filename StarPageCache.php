@@ -36,7 +36,7 @@ use Exception;
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.1.0
+ * @version 2.1.1
  * @license Apache 2.0
  */
 class StarPageCache
@@ -375,7 +375,7 @@ class StarPageCache
 
         $parsed      = wp_parse_url($url);
         if (!is_array($parsed)) {
-            error_log('[StarCache] Varnish PURGE skipped: malformed URL – ' . $url);
+            self::logMessage('Varnish PURGE skipped: malformed URL – ' . $url);
             return;
         }
         $path        = ($parsed['path'] ?? '/');
@@ -396,7 +396,7 @@ class StarPageCache
         $response = wp_remote_request($purgeUrl, $args);
 
         if (is_wp_error($response)) {
-            error_log('[StarCache] Varnish PURGE failed for ' . $url . ': ' . $response->get_error_message());
+            self::logMessage('Varnish PURGE failed for ' . $url . ': ' . $response->get_error_message());
         }
     }
 
@@ -488,5 +488,19 @@ class StarPageCache
     private static function isVarnishEnabled(): bool
     {
         return (bool) apply_filters('starcache_varnish_enabled', defined('VARNISH_HOST'));
+    }
+
+    /**
+     * Log a page-cache warning via StarExceptionHandler when available.
+     */
+    private static function logMessage(string $message): void
+    {
+        $exception = new \RuntimeException($message);
+        if (class_exists('\StarExceptionHandler')) {
+            $logger = \StarExceptionHandler::star_getInstance();
+            $logger->star_handleException($exception);
+        } else {
+            error_log("[StarCache] {$message}");
+        }
     }
 }

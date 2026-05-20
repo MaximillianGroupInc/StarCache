@@ -21,7 +21,7 @@ use Exception;
  *
  * @package StarCache
  * @author  MaximillianGroup (Max Barrett) <maximilliangroup@gmail.com>
- * @version 2.0.0
+ * @version 2.1.1
  * @license Apache 2.0
  */
 class StarCacheAdapter
@@ -113,49 +113,74 @@ class StarCacheAdapter
      */
     public static function get(string $key, string $group = ''): mixed
     {
+        $result = self::getWithFound($key, $group);
+        return $result['found'] ? $result['value'] : false;
+    }
+
+    /**
+     * Retrieve a value plus an explicit hit/miss indicator.
+     *
+     * @param  string $key
+     * @param  string $group Used only by the WP object cache.
+     * @return array{found: bool, value: mixed}
+     */
+    public static function getWithFound(string $key, string $group = ''): array
+    {
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
                     $value = self::$connection->get($key);
                     if ($value === false) {
-                        return false;
+                        return ['found' => false, 'value' => false];
+                    }
+                    if (!is_string($value)) {
+                        return ['found' => false, 'value' => false];
                     }
                     $unserialized = unserialize($value, ['allowed_classes' => false]);
-                    return ($unserialized === false && $value !== serialize(false)) ? false : $unserialized;
+                    if ($unserialized === false && $value !== serialize(false)) {
+                        return ['found' => false, 'value' => false];
+                    }
+                    return ['found' => true, 'value' => $unserialized];
 
                 case self::BACKEND_MEMCACHED:
                     $value = self::$connection->get($key);
                     if ($value === false && self::$connection->getResultCode() === \Memcached::RES_NOTFOUND) {
-                        return false;
+                        return ['found' => false, 'value' => false];
                     }
                     // Value was stored as a serialized string; unserialize to recover the original.
                     if (!is_string($value)) {
-                        return false;
+                        return ['found' => false, 'value' => false];
                     }
                     $unserialized = unserialize($value, ['allowed_classes' => false]);
-                    return ($unserialized === false && $value !== serialize(false)) ? false : $unserialized;
+                    if ($unserialized === false && $value !== serialize(false)) {
+                        return ['found' => false, 'value' => false];
+                    }
+                    return ['found' => true, 'value' => $unserialized];
 
                 case self::BACKEND_MEMCACHE:
                     // Memcache::get() returns false on miss AND when the stored value is literally
                     // false. Values are stored serialized so a retrieved string is always a hit.
                     $value = self::$connection->get($key); // @phpstan-ignore-line
                     if ($value === false) {
-                        return false; // cache miss (serialized values are strings, never false)
+                        return ['found' => false, 'value' => false]; // cache miss (serialized values are strings, never false)
                     }
                     if (!is_string($value)) {
-                        return false;
+                        return ['found' => false, 'value' => false];
                     }
                     $unserialized = unserialize($value, ['allowed_classes' => false]);
-                    return ($unserialized === false && $value !== serialize(false)) ? false : $unserialized;
+                    if ($unserialized === false && $value !== serialize(false)) {
+                        return ['found' => false, 'value' => false];
+                    }
+                    return ['found' => true, 'value' => $unserialized];
 
                 default:
                     $found = false;
                     $value = wp_cache_get($key, $group, false, $found);
-                    return $found ? $value : false;
+                    return ['found' => $found, 'value' => $found ? $value : false];
             }
         } catch (Exception $e) {
-            self::logError('StarCacheAdapter::get', $e);
-            return false;
+            self::logError('StarCacheAdapter::getWithFound', $e);
+            return ['found' => false, 'value' => false];
         }
     }
 
@@ -366,6 +391,11 @@ class StarCacheAdapter
 
     private static function logError(string $context, Exception $e): void
     {
-        error_log("[StarCache] {$context}: {$e->getMessage()}");
+        if (class_exists('\StarExceptionHandler')) {
+            $logger = \StarExceptionHandler::star_getInstance();
+            $logger->star_handleException($e);
+        } else {
+            error_log("[StarCache] {$context}: {$e->getMessage()}");
+        }
     }
 }
