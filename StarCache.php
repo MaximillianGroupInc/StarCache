@@ -194,7 +194,7 @@ class StarCache
     {
         $hardTtl = $ttl > 0 ? $ttl : self::CACHE_EXPIRATION_DYNAMIC;
         $softTtl = $this->resolveSoftTtl($hardTtl);
-        $swr     = (bool) apply_filters('starcache_remember_swr_enabled', true);
+        $staleWhileRevalidate = (bool) apply_filters('starcache_remember_swr_enabled', true);
 
         $key     = $this->buildKey($reference, $userId);
         $group   = $this->star_getUserGroup($reference, $userId);
@@ -217,7 +217,7 @@ class StarCache
                 }
             }
 
-            if ($swr) {
+            if ($staleWhileRevalidate) {
                 return $entry['value'];
             }
 
@@ -389,6 +389,7 @@ class StarCache
     {
         $default = max(1, (int) floor($hardTtl * self::DEFAULT_SOFT_TTL_RATIO));
         $softTtl = (int) apply_filters('starcache_remember_soft_ttl', $default, $hardTtl);
+        // Keep soft TTL valid even for very short hard TTLs.
         return max(1, min($softTtl, $hardTtl));
     }
 

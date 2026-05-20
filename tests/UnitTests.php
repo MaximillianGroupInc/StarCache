@@ -33,7 +33,11 @@ class FakeRedisConnection
 
     public function set(string $key, mixed $value, mixed ...$options): bool|string
     {
-        if (is_array($options[0] ?? null) && in_array('nx', $options[0], true) && array_key_exists($key, $this->store)) {
+        if (
+            is_array($options[0] ?? null)
+            && (in_array('NX', $options[0], true) || in_array('nx', $options[0], true))
+            && array_key_exists($key, $this->store)
+        ) {
             return false;
         }
         $this->store[$key] = (string) $value;

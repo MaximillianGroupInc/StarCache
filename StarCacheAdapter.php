@@ -42,6 +42,9 @@ class StarCacheAdapter
     /** @var bool */
     private static bool $initialised = false;
 
+    /** @var array<string,string> */
+    private static array $groupHashCache = [];
+
     /**
      * Initialise the adapter (idempotent – safe to call multiple times).
      */
@@ -300,7 +303,9 @@ class StarCacheAdapter
     public static function flush(): bool
     {
         if (!defined('STARCACHE_ALLOW_DANGEROUS_FLUSH') || STARCACHE_ALLOW_DANGEROUS_FLUSH !== true) {
-            self::logMessage('StarCacheAdapter::flush blocked. Define STARCACHE_ALLOW_DANGEROUS_FLUSH=true to enable.');
+            self::logMessage(
+                'StarCacheAdapter::flush blocked. Define STARCACHE_ALLOW_DANGEROUS_FLUSH=true in wp-config.php to enable.'
+            );
             return false;
         }
 
@@ -341,15 +346,19 @@ class StarCacheAdapter
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
                     if (self::isPredisConnection()) {
-                        return self::$connection->set($storageKey, $serialised, 'EX', $expiration, 'NX') === 'OK';
+                        $options = ['NX'];
+                        if ($expiration > 0) {
+                            $options['EX'] = $expiration;
+                        }
+                        return self::$connection->set($storageKey, $serialised, $options) === 'OK';
                     }
 
-                    $options = ['nx'];
+                    $options = ['NX'];
                     if ($expiration > 0) {
-                        $options['ex'] = $expiration;
+                        $options['EX'] = $expiration;
                     }
                     $result = self::$connection->set($storageKey, $serialised, $options);
-                    return $result === true || $result === 'OK';
+                    return self::isSuccessfulSetResult($result);
 
                 case self::BACKEND_MEMCACHED:
                     return self::$connection->add($storageKey, $serialised, $expiration);
@@ -530,13 +539,30 @@ class StarCacheAdapter
     private static function buildStorageKey(string $key, string $group): string
     {
         $normalizedGroup = self::normaliseGroup($group);
-        return 'scg:' . substr(hash('sha256', $normalizedGroup), 0, 16) . ':' . $key;
+        if (!isset(self::$groupHashCache[$normalizedGroup])) {
+            self::$groupHashCache[$normalizedGroup] = substr(hash('sha256', $normalizedGroup), 0, 16);
+        }
+        return 'scg:' . self::$groupHashCache[$normalizedGroup] . ':' . $key;
     }
 
     private static function normaliseGroup(string $group): string
     {
         $group = strtolower(trim($group));
-        $group = preg_replace('/[^a-z0-9_\-:]/', '', $group) ?? '';
+        $sanitized = '';
+        $length    = strlen($group);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $group[$i];
+            if (
+                ($char >= 'a' && $char <= 'z')
+                || ($char >= '0' && $char <= '9')
+                || $char === '_'
+                || $char === '-'
+                || $char === ':'
+            ) {
+                $sanitized .= $char;
+            }
+        }
+        $group = $sanitized;
         return $group !== '' ? $group : self::DEFAULT_GROUP;
     }
 
@@ -551,6 +577,12 @@ class StarCacheAdapter
             return 'persistent';
         }
         return 'runtime';
+    }
+
+    private static function isSuccessfulSetResult(mixed $result): bool
+    {
+        // PhpRedis returns bool; Predis returns "OK"/null.
+        return $result === true || $result === 'OK';
     }
 
     private static function logError(string $context, Exception $e): void

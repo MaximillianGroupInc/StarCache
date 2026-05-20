@@ -47,6 +47,9 @@ class StarAssetMinifier
      */
     public const CRON_HOOK = 'starcache_build_asset';
 
+    /** Run stale hashed-file cleanup in ~5% of requests. */
+    private const CLEANUP_PROBABILITY_DIVISOR = 20;
+
     /** @var string Filesystem path to the asset cache directory. */
     private static string $cacheDir = '';
 
@@ -230,7 +233,12 @@ class StarAssetMinifier
         $minified = ($type === 'css') ? self::minifyCss($source) : self::normalizeJs($source);
 
         // Write atomically via unique temp file so partial writes are never visible.
-        $tmpPath = $destPath . '.tmp.' . uniqid('', true);
+        try {
+            $tmpPath = $destPath . '.tmp.' . bin2hex(random_bytes(8));
+        } catch (\Exception $e) {
+            error_log('[StarCache] random_bytes() failed for asset temp name, falling back to uniqid(): ' . $e->getMessage());
+            $tmpPath = $destPath . '.tmp.' . uniqid('', true);
+        }
         if (file_put_contents($tmpPath, $minified, LOCK_EX) === false) {
             return;
         }
@@ -426,7 +434,8 @@ class StarAssetMinifier
     private static function cleanupStaleHashedAssets(string $safeHandle, string $currentFileName): void
     {
         // Keep cleanup lightweight in frontend hot paths.
-        if (random_int(1, 20) !== 1) {
+        // With divisor=20, this runs 1/20 requests (~5% sampling).
+        if (mt_rand(1, self::CLEANUP_PROBABILITY_DIVISOR) !== 1) {
             return;
         }
 
