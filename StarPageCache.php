@@ -137,6 +137,12 @@ class StarPageCache
             return $html;
         }
 
+        // Final eligibility gate immediately before persist so any late request
+        // state changes (method flags, auth state, bypass filters) are respected.
+        if (!StarResponseController::isEligible()) {
+            return $html;
+        }
+
         $ttl     = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
         $payload = ['html' => $html, 'headers' => $headers, 'time' => time()];
 

@@ -25,6 +25,8 @@ defined('OBJECT')           || define('OBJECT', 'OBJECT');
 // In-memory WP object cache shim
 // ---------------------------------------------------------------------------
 $GLOBALS['_starcache_wpcache'] = [];
+$GLOBALS['_starcache_wp_cache_flush_calls'] = 0;
+$GLOBALS['_starcache_scheduled_events'] = [];
 
 if (!function_exists('wp_cache_get')) {
     function wp_cache_get(string $key, string $group = '', bool $force = false, &$found = null)
@@ -58,7 +60,20 @@ if (!function_exists('wp_cache_delete')) {
 if (!function_exists('wp_cache_flush')) {
     function wp_cache_flush(): bool
     {
+        $GLOBALS['_starcache_wp_cache_flush_calls']++;
         $GLOBALS['_starcache_wpcache'] = [];
+        return true;
+    }
+}
+
+if (!function_exists('wp_cache_add')) {
+    function wp_cache_add(string $key, $data, string $group = '', int $expire = 0): bool
+    {
+        $cacheKey = $group . ':' . $key;
+        if (array_key_exists($cacheKey, $GLOBALS['_starcache_wpcache'])) {
+            return false;
+        }
+        $GLOBALS['_starcache_wpcache'][$cacheKey] = $data;
         return true;
     }
 }
@@ -159,6 +174,13 @@ if (!function_exists('wp_parse_url')) {
     function wp_parse_url(string $url, int $component = -1)
     {
         return $component === -1 ? parse_url($url) : parse_url($url, $component);
+    }
+}
+
+if (!function_exists('wp_using_ext_object_cache')) {
+    function wp_using_ext_object_cache(): bool
+    {
+        return false;
     }
 }
 
@@ -276,6 +298,11 @@ if (!function_exists('admin_url')) {
 if (!function_exists('wp_schedule_single_event')) {
     function wp_schedule_single_event(int $timestamp, string $hook, array $args = []): bool
     {
+        $GLOBALS['_starcache_scheduled_events'][] = [
+            'timestamp' => $timestamp,
+            'hook'      => $hook,
+            'args'      => $args,
+        ];
         return true;
     }
 }
@@ -283,7 +310,48 @@ if (!function_exists('wp_schedule_single_event')) {
 if (!function_exists('wp_next_scheduled')) {
     function wp_next_scheduled(string $hook, array $args = []): int|false
     {
+        foreach ($GLOBALS['_starcache_scheduled_events'] ?? [] as $event) {
+            if (($event['hook'] ?? '') === $hook && ($event['args'] ?? []) === $args) {
+                return (int) ($event['timestamp'] ?? time());
+            }
+        }
         return false;
+    }
+}
+
+if (!class_exists('WP_Dependencies')) {
+    // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+    class WP_Dependencies
+    {
+        /** @var array<string,object> */
+        public array $registered = [];
+    }
+}
+
+if (!class_exists('WP_Styles')) {
+    // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+    class WP_Styles extends WP_Dependencies
+    {
+        /** @var string[] */
+        public array $queue = [];
+    }
+}
+
+if (!class_exists('WP_Scripts')) {
+    // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+    class WP_Scripts extends WP_Dependencies
+    {
+        /** @var string[] */
+        public array $queue = [];
+    }
+}
+
+if (!class_exists('Memcached')) {
+    // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+    class Memcached
+    {
+        public const RES_SUCCESS  = 0;
+        public const RES_NOTFOUND = 16;
     }
 }
 

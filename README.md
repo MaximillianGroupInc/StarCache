@@ -154,7 +154,7 @@ wp starcache flush
 StarCache probes backends in the following order and uses the first one that
 responds successfully:
 
-1. **Redis** – requires the `redis` PHP extension; reads `WP_REDIS_*` constants.
+1. **Redis** – tries PhpRedis (`ext-redis`) first, then Predis (`\Predis\Client`) using `WP_REDIS_*` constants.
 2. **Memcached** – requires the `memcached` PHP extension; reads `MEMCACHED_SERVERS`.
 3. **Memcache** – requires the `memcache` PHP extension; reads `MEMCACHE_SERVER_HOST/PORT`.
 4. **WordPress object cache** – always available; backed by APCu, file, or database
@@ -162,6 +162,25 @@ responds successfully:
 
 The detected backend is exposed via `StarCacheAdapter::getBackend()` and shown in
 the WordPress admin bar for administrators.
+
+`StarCacheAdapter::getBackendCapabilities()` provides runtime capability detection for:
+
+- PhpRedis availability
+- Predis availability
+- Memcached availability
+- Memcache availability
+- WordPress object-cache add/flush support
+- WordPress object-cache persistence mode (`persistent` vs `runtime`)
+
+### Dangerous flush guard
+
+Global backend flush operations are blocked by default. To allow them explicitly:
+
+```php
+define('STARCACHE_ALLOW_DANGEROUS_FLUSH', true);
+```
+
+Without this constant, `StarCacheAdapter::flush()` returns `false` and logs a warning.
 
 ---
 
@@ -201,4 +220,3 @@ Contributions are welcome! Please see [CONTRIBUTING.md](contributing.md) for det
 
 If you encounter any issues or have questions, please open an issue on the
 [GitHub repository](https://github.com/MaximillianGroupInc/StarCache).
-

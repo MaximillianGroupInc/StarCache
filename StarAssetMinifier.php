@@ -229,12 +229,16 @@ class StarAssetMinifier
 
         $minified = ($type === 'css') ? self::minifyCss($source) : self::normalizeJs($source);
 
-        // Write atomically via temp file so partial writes are never visible.
-        $tmpPath = $destPath . '.tmp';
-        if (file_put_contents($tmpPath, $minified) === false) {
+        // Write atomically via unique temp file so partial writes are never visible.
+        $tmpPath = $destPath . '.tmp.' . uniqid('', true);
+        if (file_put_contents($tmpPath, $minified, LOCK_EX) === false) {
             return;
         }
-        rename($tmpPath, $destPath);
+
+        if (!@rename($tmpPath, $destPath)) {
+            @unlink($tmpPath);
+            return;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -313,6 +317,8 @@ class StarAssetMinifier
             }
             return;
         }
+
+        self::cleanupStaleHashedAssets($safeHandle, $fileName);
 
         // Minified file already exists — swap src and bump the version so
         // browsers and CDNs re-fetch after any cache is cleared.
@@ -412,5 +418,29 @@ class StarAssetMinifier
             return false;
         }
         return (bool) apply_filters('starcache_minify_enabled', true);
+    }
+
+    /**
+     * Remove old hashed files for the same handle to keep cache growth bounded.
+     */
+    private static function cleanupStaleHashedAssets(string $safeHandle, string $currentFileName): void
+    {
+        // Keep cleanup lightweight in frontend hot paths.
+        if (random_int(1, 20) !== 1) {
+            return;
+        }
+
+        $pattern = self::$cacheDir . '/' . $safeHandle . '-*.min.{css,js}';
+        $files   = glob($pattern, GLOB_BRACE);
+        if (!$files) {
+            return;
+        }
+
+        foreach ($files as $file) {
+            if (basename($file) === $currentFileName) {
+                continue;
+            }
+            @unlink($file);
+        }
     }
 }
