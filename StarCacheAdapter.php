@@ -491,23 +491,6 @@ class StarCacheAdapter
         if (!self::isSuccessfulPredisPing($pong)) {
             return false;
         }
-        if (is_string($pong) && strtoupper(trim($pong)) !== 'PONG') {
-            return false;
-        }
-        if (is_object($pong)) {
-            if (method_exists($pong, 'getPayload')) {
-                $payload = $pong->getPayload();
-                if (!is_string($payload) || strtoupper(trim($payload)) !== 'PONG') {
-                    return false;
-                }
-            } elseif (method_exists($pong, '__toString')) {
-                if (strtoupper(trim((string) $pong)) !== 'PONG') {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
 
         self::$connection      = $client;
         self::$detectedBackend = self::BACKEND_REDIS;
