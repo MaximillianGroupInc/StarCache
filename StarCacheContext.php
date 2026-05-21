@@ -183,13 +183,13 @@ class StarCacheContext
         self::$resolved = true;
 
         // Ensure built-in dimensions are registered.
-        if (!isset(self::$registered[self::DIM_AUTH])) {
+        if (!array_key_exists(self::DIM_AUTH, self::$registered)) {
             self::$registered[self::DIM_AUTH] = [self::AUTH_AUTHENTICATED, self::AUTH_ANONYMOUS];
         }
-        if (!isset(self::$registered[self::DIM_DEVICE])) {
+        if (!array_key_exists(self::DIM_DEVICE, self::$registered)) {
             self::$registered[self::DIM_DEVICE] = [self::DEVICE_MOBILE, self::DEVICE_TABLET, self::DEVICE_DESKTOP];
         }
-        if (!isset(self::$registered[self::DIM_EXPERIMENT])) {
+        if (!array_key_exists(self::DIM_EXPERIMENT, self::$registered)) {
             self::$registered[self::DIM_EXPERIMENT] = []; // any sanitized value
         }
 

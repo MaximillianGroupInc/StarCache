@@ -316,7 +316,7 @@ class StarCache
 
         if (!$isStatic && $cacheKey) {
             global $wpdb;
-            if (!isset($wpdb)) {
+            if (!is_object($wpdb)) {
                 return;
             }
 

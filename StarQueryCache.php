@@ -67,7 +67,7 @@ class StarQueryCache
         }
 
         // Restore found_posts and max_num_pages from cached meta
-        if (isset($cached['found_posts'])) {
+        if (array_key_exists('found_posts', $cached)) {
             $query->found_posts   = (int) $cached['found_posts'];
             $query->max_num_pages = (int) ($cached['max_num_pages'] ?? 1);
         }

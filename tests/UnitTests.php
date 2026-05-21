@@ -116,6 +116,22 @@ class FakePredisErrorResponse
     }
 }
 
+class FakePredisOkResponse
+{
+    public function getPayload(): string
+    {
+        return 'OK';
+    }
+}
+
+class FakePredisStringOkResponse
+{
+    public function __toString(): string
+    {
+        return 'OK';
+    }
+}
+
 /**
  * StarCache v2.1.1 Test Suite
  *
@@ -791,7 +807,7 @@ class UnitTests extends TestCase
         };
 
         $first = $cache->star_remember('remember_lock_contention', $callback, 2);
-        usleep(self::SOFT_TTL_WAIT_MICROSECONDS); // Let soft TTL (floor(2 * 0.9) = 1s) become stale.
+        usleep(self::SOFT_TTL_WAIT_MICROSECONDS); // Let soft TTL (floor(2 * 0.8) = 1s) become stale.
 
         $keyMethod = new \ReflectionMethod(StarCache::class, 'buildKey');
         $keyMethod->setAccessible(true);
@@ -960,12 +976,16 @@ class UnitTests extends TestCase
     {
         $assetDir  = WP_CONTENT_DIR . '/themes/starcache-test';
         $assetPath = $assetDir . '/style.css';
-        @mkdir($assetDir, 0755, true);
-        file_put_contents($assetPath, '/* c */ body { color : red ; }');
+        if (!is_dir($assetDir)) {
+            $this->assertTrue(mkdir($assetDir, 0755, true));
+        }
+        $this->assertNotFalse(file_put_contents($assetPath, '/* c */ body { color : red ; }'));
 
         $blogId  = (int) $GLOBALS['_starcache_test_blog_id'];
         $baseDir = WP_CONTENT_DIR . '/cache/starcache/assets/' . $blogId;
-        @mkdir($baseDir, 0755, true);
+        if (!is_dir($baseDir)) {
+            $this->assertTrue(mkdir($baseDir, 0755, true));
+        }
 
         $styles = new \WP_Styles();
         $styles->queue = ['theme-style'];
@@ -1029,6 +1049,28 @@ class UnitTests extends TestCase
     public function testPredisPingHelperRejectsErrorLikeResponses(): void
     {
         $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulPredisPing');
+        $method->setAccessible(true);
+
+        $this->assertFalse($method->invoke(null, null));
+        $this->assertFalse($method->invoke(null, false));
+        $this->assertFalse($method->invoke(null, 'NOAUTH Authentication required.'));
+        $this->assertFalse($method->invoke(null, new FakePredisErrorResponse()));
+    }
+
+    public function testPredisSetResultHelperAcceptsStatusResponses(): void
+    {
+        $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulSetResult');
+        $method->setAccessible(true);
+
+        $this->assertTrue($method->invoke(null, 'OK'));
+        $this->assertTrue($method->invoke(null, '+OK'));
+        $this->assertTrue($method->invoke(null, new FakePredisOkResponse()));
+        $this->assertTrue($method->invoke(null, new FakePredisStringOkResponse()));
+    }
+
+    public function testPredisSetResultHelperRejectsErrorResponses(): void
+    {
+        $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulSetResult');
         $method->setAccessible(true);
 
         $this->assertFalse($method->invoke(null, null));

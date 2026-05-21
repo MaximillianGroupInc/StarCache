@@ -245,12 +245,12 @@ class StarCacheAdapter
                     $serialised = serialize($value);
                     if ($expiration > 0) {
                         if (self::isPredisConnection()) {
-                            return self::$connection->setex($storageKey, $expiration, $serialised) === 'OK';
+                            return self::isSuccessfulSetResult(self::$connection->setex($storageKey, $expiration, $serialised));
                         }
                         return (bool) self::$connection->setEx($storageKey, $expiration, $serialised);
                     }
                     if (self::isPredisConnection()) {
-                        return self::$connection->set($storageKey, $serialised) === 'OK';
+                        return self::isSuccessfulSetResult(self::$connection->set($storageKey, $serialised));
                     }
                     return (bool) self::$connection->set($storageKey, $serialised);
 
@@ -326,7 +326,7 @@ class StarCacheAdapter
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
                     if (self::isPredisConnection()) {
-                        return self::$connection->flushdb() === 'OK';
+                        return self::isSuccessfulSetResult(self::$connection->flushdb());
                     }
                     return (bool) self::$connection->flushDB();
 
@@ -363,7 +363,7 @@ class StarCacheAdapter
                         if ($expiration > 0) {
                             $options['EX'] = $expiration;
                         }
-                        return self::$connection->set($storageKey, $serialised, $options) === 'OK';
+                        return self::isSuccessfulSetResult(self::$connection->set($storageKey, $serialised, $options));
                     }
 
                     $options = ['NX'];
@@ -617,8 +617,27 @@ class StarCacheAdapter
 
     private static function isSuccessfulSetResult(mixed $result): bool
     {
-        // PhpRedis returns bool; Predis returns "OK"/null.
-        return $result === true || $result === 'OK';
+        // PhpRedis returns bool; Predis may return "OK" or status response objects.
+        if ($result === true) {
+            return true;
+        }
+
+        if (is_string($result)) {
+            return strtoupper(trim($result, self::PONG_TRIM_CHARS)) === 'OK';
+        }
+
+        if (is_object($result) && method_exists($result, 'getPayload')) {
+            $payload = $result->getPayload();
+            if (is_string($payload)) {
+                return strtoupper(trim($payload, self::PONG_TRIM_CHARS)) === 'OK';
+            }
+        }
+
+        if (is_object($result) && method_exists($result, '__toString')) {
+            return strtoupper(trim((string) $result, self::PONG_TRIM_CHARS)) === 'OK';
+        }
+
+        return false;
     }
 
     private static function isSuccessfulPredisPing(mixed $pong): bool
