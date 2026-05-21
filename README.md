@@ -90,6 +90,7 @@ $data = $cache->star_getCachedData('user_profile', '42');
 $cache->star_deleteCachedData('user_profile', '42');
 
 // Cache-aside (get-or-set pattern)
+// Uses lock-based soft-TTL stale protection (not full background SWR).
 $posts = $cache->star_remember('homepage_posts', function () {
     return get_posts(['numberposts' => 10]);
 }, 300);
@@ -181,6 +182,8 @@ define('STARCACHE_ALLOW_DANGEROUS_FLUSH', true);
 ```
 
 Without this constant, `StarCacheAdapter::flush()` returns `false` and logs a warning.
+Treat `StarCacheAdapter::flush()` as local dev/test tooling only. In production,
+invalidate via version bumping plus edge/cache-layer purge flows instead of backend flushes.
 
 ---
 

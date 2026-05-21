@@ -435,6 +435,7 @@ class StarAssetMinifier
     {
         // Keep cleanup lightweight in frontend hot paths.
         // With divisor=20, this runs 1/20 requests (~5% sampling).
+        // TODO: Move this cleanup path to a scheduled cron job.
         if (mt_rand(1, self::CLEANUP_PROBABILITY_DIVISOR) !== 1) {
             return;
         }

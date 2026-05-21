@@ -100,6 +100,22 @@ class FakeMemcachedConnection
     }
 }
 
+class FakePredisPongResponse
+{
+    public function getPayload(): string
+    {
+        return 'PONG';
+    }
+}
+
+class FakePredisErrorResponse
+{
+    public function getPayload(): string
+    {
+        return 'NOAUTH Authentication required.';
+    }
+}
+
 /**
  * StarCache v2.1.1 Test Suite
  *
@@ -763,6 +779,35 @@ class UnitTests extends TestCase
         $this->assertSame(1, $callCount, 'False values must be cached and reused.');
     }
 
+    public function testRememberLockContentionServesStaleWithoutSecondCallbackRun(): void
+    {
+        $cache     = new StarCache();
+        $callCount = 0;
+        $callback  = static function () use (&$callCount): array {
+            $callCount++;
+            return ['computed' => $callCount];
+        };
+
+        $first = $cache->star_remember('remember_lock_contention', $callback, 2);
+        usleep(1100000); // Let soft TTL (floor(2 * 0.9) = 1s) become stale.
+
+        $keyMethod = new \ReflectionMethod(StarCache::class, 'buildKey');
+        $keyMethod->setAccessible(true);
+        $key = $keyMethod->invoke($cache, 'remember_lock_contention', null);
+
+        $lockMethod = new \ReflectionMethod(StarCache::class, 'buildRememberLockKey');
+        $lockMethod->setAccessible(true);
+        $lockKey = $lockMethod->invoke($cache, $key);
+
+        $group = $cache->star_getUserGroup('remember_lock_contention', null);
+        $this->assertTrue(StarCacheAdapter::add($lockKey, 1, 30, $group));
+
+        $second = $cache->star_remember('remember_lock_contention', $callback, 2);
+
+        $this->assertSame($first, $second);
+        $this->assertSame(1, $callCount, 'Callback should not run again while another lock holder is refreshing.');
+    }
+
     public function testGetCachedDataFoundFlagDistinguishesFalseHitFromMiss(): void
     {
         $cache = new StarCache();
@@ -969,6 +1014,27 @@ class UnitTests extends TestCase
         );
     }
 
+    public function testPredisPingHelperAcceptsValidPongResponses(): void
+    {
+        $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulPredisPing');
+        $method->setAccessible(true);
+
+        $this->assertTrue($method->invoke(null, 'PONG'));
+        $this->assertTrue($method->invoke(null, '+PONG'));
+        $this->assertTrue($method->invoke(null, new FakePredisPongResponse()));
+    }
+
+    public function testPredisPingHelperRejectsErrorLikeResponses(): void
+    {
+        $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulPredisPing');
+        $method->setAccessible(true);
+
+        $this->assertFalse($method->invoke(null, null));
+        $this->assertFalse($method->invoke(null, false));
+        $this->assertFalse($method->invoke(null, 'NOAUTH Authentication required.'));
+        $this->assertFalse($method->invoke(null, new FakePredisErrorResponse()));
+    }
+
     // =========================================================================
     // Version invalidation — no backend flush
     // =========================================================================
@@ -992,7 +1058,7 @@ class UnitTests extends TestCase
     // Multisite isolation — page, object, query, asset
     // =========================================================================
 
-    public function testMultisiteBlogIdIsolatesPageObjectQueryAndAssetCacheSpaces(): void
+    public function testMultisiteBlogIdIsolatesPageObjectLegacyQueryAndAssetCacheSpaces(): void
     {
         // Object cache space
         $GLOBALS['_starcache_test_blog_id'] = 1;

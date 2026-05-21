@@ -181,8 +181,9 @@ class StarCache
     /**
      * Get or set a cached value using a callback (cache-aside pattern).
      *
-     * Returns the cached value if available; otherwise calls $callback,
-     * stores the result, and returns it.
+     * Uses lock-based soft-TTL stale protection. When stale data exists, the
+     * lock holder recomputes synchronously while other callers can reuse stale
+     * data (or briefly wait when stale reuse is disabled via filter).
      *
      * @param  string      $reference
      * @param  callable    $callback   Must return the value to cache.

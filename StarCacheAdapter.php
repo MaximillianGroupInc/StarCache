@@ -298,7 +298,7 @@ class StarCacheAdapter
     }
 
     /**
-     * Flush all cache entries (use with care in shared environments).
+     * Flush all cache entries (dangerous; intended for local dev/test only).
      */
     public static function flush(): bool
     {
@@ -467,9 +467,15 @@ class StarCacheAdapter
             $params['password'] = $password;
         }
 
-        $client = new \Predis\Client($params, ['exceptions' => false]);
-        $pong   = $client->ping();
-        if ($pong === null || $pong === false) {
+        try {
+            $client = new \Predis\Client($params, ['exceptions' => false]);
+            $pong   = $client->ping();
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter::tryPredis', $e);
+            return false;
+        }
+
+        if (!self::isSuccessfulPredisPing($pong)) {
             return false;
         }
 
@@ -539,7 +545,7 @@ class StarCacheAdapter
     private static function buildStorageKey(string $key, string $group): string
     {
         $normalizedGroup = self::normaliseGroup($group);
-        if (!isset(self::$groupHashCache[$normalizedGroup])) {
+        if (!array_key_exists($normalizedGroup, self::$groupHashCache)) {
             self::$groupHashCache[$normalizedGroup] = substr(hash('sha256', $normalizedGroup), 0, 16);
         }
         return 'scg:' . self::$groupHashCache[$normalizedGroup] . ':' . $key;
@@ -583,6 +589,34 @@ class StarCacheAdapter
     {
         // PhpRedis returns bool; Predis returns "OK"/null.
         return $result === true || $result === 'OK';
+    }
+
+    private static function isSuccessfulPredisPing(mixed $pong): bool
+    {
+        if ($pong === true) {
+            return true;
+        }
+
+        if (is_string($pong)) {
+            return strtoupper(trim($pong, " \t\n\r\0\x0B+")) === 'PONG';
+        }
+
+        if (!is_object($pong)) {
+            return false;
+        }
+
+        if (method_exists($pong, 'getPayload')) {
+            $payload = $pong->getPayload();
+            if (is_string($payload)) {
+                return strtoupper(trim($payload, " \t\n\r\0\x0B+")) === 'PONG';
+            }
+        }
+
+        if (method_exists($pong, '__toString')) {
+            return strtoupper(trim((string) $pong, " \t\n\r\0\x0B+")) === 'PONG';
+        }
+
+        return false;
     }
 
     private static function logError(string $context, Exception $e): void
