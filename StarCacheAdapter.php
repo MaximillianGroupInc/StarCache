@@ -32,6 +32,7 @@ class StarCacheAdapter
     public const BACKEND_WP        = 'wp';
 
     private const DEFAULT_GROUP = 'default';
+    private const PONG_TRIM_CHARS = " \t\n\r\0\x0B+";
 
     /** @var \Redis|\Predis\Client|\Memcached|\Memcache|null */
     private static $connection = null;
@@ -598,7 +599,7 @@ class StarCacheAdapter
         }
 
         if (is_string($pong)) {
-            return strtoupper(trim($pong, " \t\n\r\0\x0B+")) === 'PONG';
+            return strtoupper(trim($pong, self::PONG_TRIM_CHARS)) === 'PONG';
         }
 
         if (!is_object($pong)) {
@@ -608,12 +609,12 @@ class StarCacheAdapter
         if (method_exists($pong, 'getPayload')) {
             $payload = $pong->getPayload();
             if (is_string($payload)) {
-                return strtoupper(trim($payload, " \t\n\r\0\x0B+")) === 'PONG';
+                return strtoupper(trim($payload, self::PONG_TRIM_CHARS)) === 'PONG';
             }
         }
 
         if (method_exists($pong, '__toString')) {
-            return strtoupper(trim((string) $pong, " \t\n\r\0\x0B+")) === 'PONG';
+            return strtoupper(trim((string) $pong, self::PONG_TRIM_CHARS)) === 'PONG';
         }
 
         return false;

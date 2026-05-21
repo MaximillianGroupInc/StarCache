@@ -133,6 +133,8 @@ class FakePredisErrorResponse
  */
 class UnitTests extends TestCase
 {
+    private const SOFT_TTL_WAIT_MICROSECONDS = 1100000;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -789,7 +791,7 @@ class UnitTests extends TestCase
         };
 
         $first = $cache->star_remember('remember_lock_contention', $callback, 2);
-        usleep(1100000); // Let soft TTL (floor(2 * 0.9) = 1s) become stale.
+        usleep(self::SOFT_TTL_WAIT_MICROSECONDS); // Let soft TTL (floor(2 * 0.9) = 1s) become stale.
 
         $keyMethod = new \ReflectionMethod(StarCache::class, 'buildKey');
         $keyMethod->setAccessible(true);
@@ -1058,7 +1060,7 @@ class UnitTests extends TestCase
     // Multisite isolation — page, object, query, asset
     // =========================================================================
 
-    public function testMultisiteBlogIdIsolatesPageObjectLegacyQueryAndAssetCacheSpaces(): void
+    public function testMultisiteBlogIdIsolatesPageObjectDeprecatedQueryAndAssetCacheSpaces(): void
     {
         // Object cache space
         $GLOBALS['_starcache_test_blog_id'] = 1;
