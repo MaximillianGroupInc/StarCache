@@ -61,17 +61,29 @@ class StarCacheAdapter
             if (self::tryRedis()) {
                 return;
             }
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter init redis probe error', $e);
+        }
+        try {
             if (self::tryPredis()) {
                 return;
             }
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter init predis probe error', $e);
+        }
+        try {
             if (self::tryMemcached()) {
                 return;
             }
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter init memcached probe error', $e);
+        }
+        try {
             if (self::tryMemcache()) {
                 return;
             }
         } catch (Exception $e) {
-            self::logError('StarCacheAdapter init error', $e);
+            self::logError('StarCacheAdapter init memcache probe error', $e);
         }
 
         // Fallback: WordPress built-in object cache (wp_cache_*)
@@ -305,7 +317,7 @@ class StarCacheAdapter
     {
         if (!defined('STARCACHE_ALLOW_DANGEROUS_FLUSH') || STARCACHE_ALLOW_DANGEROUS_FLUSH !== true) {
             self::logMessage(
-                'StarCacheAdapter::flush blocked. Define STARCACHE_ALLOW_DANGEROUS_FLUSH=true in wp-config.php to enable.'
+                'StarCacheAdapter::flush blocked. This is intended for development/testing only; use version bumps in production. Define STARCACHE_ALLOW_DANGEROUS_FLUSH=true in wp-config.php to enable.'
             );
             return false;
         }
@@ -478,6 +490,23 @@ class StarCacheAdapter
 
         if (!self::isSuccessfulPredisPing($pong)) {
             return false;
+        }
+        if (is_string($pong) && strtoupper(trim($pong)) !== 'PONG') {
+            return false;
+        }
+        if (is_object($pong)) {
+            if (method_exists($pong, 'getPayload')) {
+                $payload = $pong->getPayload();
+                if (!is_string($payload) || strtoupper(trim($payload)) !== 'PONG') {
+                    return false;
+                }
+            } elseif (method_exists($pong, '__toString')) {
+                if (strtoupper(trim((string) $pong)) !== 'PONG') {
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
 
         self::$connection      = $client;

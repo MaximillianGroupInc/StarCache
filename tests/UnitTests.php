@@ -129,7 +129,7 @@ class FakePredisErrorResponse
  * - StarCacheContext: registration, resolution, constraints, locking, hash
  * - StarResponseController: eligibility checks
  * - StarVersionStore: version get/bump/reset with renamed groups
- * - StarQueryCache: key determinism, version invalidation
+ * - StarQueryCache (legacy utility): key determinism, version invalidation
  */
 class UnitTests extends TestCase
 {
@@ -853,7 +853,7 @@ class UnitTests extends TestCase
     }
 
     // =========================================================================
-    // StarQueryCache — key determinism + version invalidation
+    // StarQueryCache (legacy utility) — key determinism + version invalidation
     // =========================================================================
 
     public function testCachedWpdbQueryKeyIsDeterministic(): void

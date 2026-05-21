@@ -175,7 +175,8 @@ the WordPress admin bar for administrators.
 
 ### Dangerous flush guard
 
-Global backend flush operations are blocked by default. To allow them explicitly:
+Global backend flush operations are blocked by default and intended only for development/testing.
+In production, prefer version bump invalidation and edge purge flows. To allow a backend flush explicitly:
 
 ```php
 define('STARCACHE_ALLOW_DANGEROUS_FLUSH', true);
