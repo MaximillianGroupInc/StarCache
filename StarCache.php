@@ -218,14 +218,16 @@ class StarCache
                 }
             }
 
-            if ($staleWhileRevalidate) {
+            if ($staleWhileRevalidate && !$entry['isPastHardTtl']) {
                 return $entry['value'];
             }
 
             $reloaded = $this->waitForRememberRefresh($key, $group);
             if ($reloaded['found']) {
                 $latest = $this->normalizeRememberEntry($reloaded['value'], $softTtl, $hardTtl);
-                return $latest['value'];
+                if (!$latest['isPastHardTtl']) {
+                    return $latest['value'];
+                }
             }
         }
 
@@ -250,7 +252,9 @@ class StarCache
         $reloaded = $this->waitForRememberRefresh($key, $group);
         if ($reloaded['found']) {
             $entry = $this->normalizeRememberEntry($reloaded['value'], $softTtl, $hardTtl);
-            return $entry['value'];
+            if (!$entry['isPastHardTtl']) {
+                return $entry['value'];
+            }
         }
 
         $value = $callback();
@@ -353,7 +357,7 @@ class StarCache
     }
 
     /**
-     * @return array{value:mixed,isFresh:bool}
+     * @return array{value:mixed,isFresh:bool,isPastHardTtl:bool}
      */
     private function normalizeRememberEntry(mixed $raw, int $softTtl, int $hardTtl): array
     {
@@ -362,16 +366,17 @@ class StarCache
             && ($raw['marker'] ?? '') === self::REMEMBER_ENVELOPE_V1
             && array_key_exists('value', $raw)
         ) {
-            $createdAt = (int) ($raw['created_at'] ?? 0);
-            $soft      = max(1, (int) ($raw['soft_ttl'] ?? $softTtl));
-            $hard      = max($soft, (int) ($raw['hard_ttl'] ?? $hardTtl));
-            $age       = max(0, time() - $createdAt);
-            $fresh     = $age < $soft;
+            $createdAt     = (int) ($raw['created_at'] ?? 0);
+            $soft          = max(1, (int) ($raw['soft_ttl'] ?? $softTtl));
+            $hard          = max($soft, (int) ($raw['hard_ttl'] ?? $hardTtl));
+            $age           = max(0, time() - $createdAt);
+            $fresh         = $age < $soft;
+            $isPastHardTtl = $age >= $hard;
 
-            return ['value' => $raw['value'], 'isFresh' => $fresh && $age < $hard];
+            return ['value' => $raw['value'], 'isFresh' => $fresh && !$isPastHardTtl, 'isPastHardTtl' => $isPastHardTtl];
         }
 
-        return ['value' => $raw, 'isFresh' => true];
+        return ['value' => $raw, 'isFresh' => true, 'isPastHardTtl' => false];
     }
 
     private function storeRememberEntry(string $key, string $group, mixed $value, int $softTtl, int $hardTtl): bool

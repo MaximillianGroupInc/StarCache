@@ -148,7 +148,7 @@ class StarCacheAdapter
      * Retrieve a value from the active cache backend.
      *
      * @param string $key
-     * @param string $group  Used only by the WP object cache.
+     * @param string $group  Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
      * @return mixed
      */
     public static function get(string $key, string $group = ''): mixed
@@ -161,7 +161,7 @@ class StarCacheAdapter
      * Retrieve a value plus an explicit hit/miss indicator.
      *
      * @param  string $key
-     * @param  string $group Used only by the WP object cache.
+     * @param  string $group Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
      * @return array{found: bool, value: mixed}
      */
     public static function getWithFound(string $key, string $group = ''): array
@@ -233,7 +233,7 @@ class StarCacheAdapter
      * @param string $key
      * @param mixed  $value
      * @param int    $expiration  Seconds (0 = no expiry for WP/Redis).
-     * @param string $group       Used only by the WP object cache.
+     * @param string $group       Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
      * @return bool
      */
     public static function set(string $key, mixed $value, int $expiration = 3600, string $group = ''): bool
@@ -286,7 +286,7 @@ class StarCacheAdapter
      * Delete a cached value.
      *
      * @param string $key
-     * @param string $group  Used only by the WP object cache.
+     * @param string $group  Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
      */
     public static function delete(string $key, string $group = ''): bool
     {

@@ -974,8 +974,11 @@ class UnitTests extends TestCase
 
     public function testAssetFirstRequestServesOriginalThenServesStoredMinifiedFile(): void
     {
-        $assetDir  = WP_CONTENT_DIR . '/themes/starcache-test';
-        $assetPath = $assetDir . '/style.css';
+        $uniqueSuffix = uniqid('', true);
+        $themeName    = 'starcache-test-' . $uniqueSuffix;
+        $assetHandle  = 'theme-style-' . $uniqueSuffix;
+        $assetDir     = WP_CONTENT_DIR . '/themes/' . $themeName;
+        $assetPath    = $assetDir . '/style.css';
         if (!is_dir($assetDir)) {
             $this->assertTrue(mkdir($assetDir, 0755, true), 'Failed to create asset directory: ' . $assetDir);
         }
@@ -987,10 +990,16 @@ class UnitTests extends TestCase
             $this->assertTrue(mkdir($baseDir, 0755, true), 'Failed to create cache base directory: ' . $baseDir);
         }
 
+        // Remove any leftover cached file for this handle so the first request is always a miss.
+        $cachedPattern = $baseDir . '/' . $assetHandle . '.*';
+        foreach (glob($cachedPattern) ?: [] as $staleFile) {
+            @unlink($staleFile);
+        }
+
         $styles = new \WP_Styles();
-        $styles->queue = ['theme-style'];
-        $styles->registered['theme-style'] = (object) [
-            'src' => WP_CONTENT_URL . '/themes/starcache-test/style.css',
+        $styles->queue            = [$assetHandle];
+        $styles->registered[$assetHandle] = (object) [
+            'src' => WP_CONTENT_URL . '/themes/' . $themeName . '/style.css',
             'ver' => null,
         ];
         $GLOBALS['wp_styles'] = $styles;
@@ -998,8 +1007,8 @@ class UnitTests extends TestCase
         StarAssetMinifier::init();
         StarAssetMinifier::processStyles();
         $this->assertSame(
-            WP_CONTENT_URL . '/themes/starcache-test/style.css',
-            $styles->registered['theme-style']->src,
+            WP_CONTENT_URL . '/themes/' . $themeName . '/style.css',
+            $styles->registered[$assetHandle]->src,
             'First request must keep original asset URL while build is pending.'
         );
 
@@ -1010,8 +1019,8 @@ class UnitTests extends TestCase
         StarAssetMinifier::buildAssetFromCron($args[0], $args[1], $args[2]);
 
         StarAssetMinifier::processStyles();
-        $this->assertStringContainsString('.min.css', $styles->registered['theme-style']->src);
-        $this->assertStringContainsString('/cache/starcache/assets/' . $blogId . '/', $styles->registered['theme-style']->src);
+        $this->assertStringContainsString('.min.css', $styles->registered[$assetHandle]->src);
+        $this->assertStringContainsString('/cache/starcache/assets/' . $blogId . '/', $styles->registered[$assetHandle]->src);
     }
 
     // =========================================================================
