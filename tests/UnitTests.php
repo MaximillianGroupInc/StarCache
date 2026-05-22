@@ -620,12 +620,12 @@ class UnitTests extends TestCase
     public function testBuildAssetFromCronWritesMinifiedCssFile(): void
     {
         $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
-        mkdir($dir, 0755, true);
+        $this->assertTrue(mkdir($dir, 0755, true));
 
         $srcPath  = $dir . '/style.css';
         $destPath = $dir . '/style.min.css';
 
-        file_put_contents($srcPath, "/* comment */ body { color : red ; } ");
+        $this->assertNotFalse(file_put_contents($srcPath, "/* comment */ body { color : red ; } "));
 
         StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'css');
 
@@ -643,12 +643,12 @@ class UnitTests extends TestCase
     public function testBuildAssetFromCronWritesNormalizedJsFile(): void
     {
         $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
-        mkdir($dir, 0755, true);
+        $this->assertTrue(mkdir($dir, 0755, true));
 
         $srcPath  = $dir . '/app.js';
         $destPath = $dir . '/app.min.js';
 
-        file_put_contents($srcPath, "  var x = 1;  \n");
+        $this->assertNotFalse(file_put_contents($srcPath, "  var x = 1;  \n"));
 
         StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'js');
 
@@ -665,13 +665,13 @@ class UnitTests extends TestCase
     public function testBuildAssetFromCronSkipsWhenDestAlreadyExists(): void
     {
         $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
-        mkdir($dir, 0755, true);
+        $this->assertTrue(mkdir($dir, 0755, true));
 
         $srcPath  = $dir . '/style.css';
         $destPath = $dir . '/style.min.css';
 
-        file_put_contents($srcPath, 'body { color: blue }');
-        file_put_contents($destPath, 'original_content');
+        $this->assertNotFalse(file_put_contents($srcPath, 'body { color: blue }'));
+        $this->assertNotFalse(file_put_contents($destPath, 'original_content'));
 
         StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'css');
 
