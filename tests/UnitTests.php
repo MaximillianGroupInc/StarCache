@@ -977,14 +977,14 @@ class UnitTests extends TestCase
         $assetDir  = WP_CONTENT_DIR . '/themes/starcache-test';
         $assetPath = $assetDir . '/style.css';
         if (!is_dir($assetDir)) {
-            $this->assertTrue(mkdir($assetDir, 0755, true));
+            $this->assertTrue(mkdir($assetDir, 0755, true), 'Failed to create asset directory: ' . $assetDir);
         }
         $this->assertNotFalse(file_put_contents($assetPath, '/* c */ body { color : red ; }'));
 
         $blogId  = (int) $GLOBALS['_starcache_test_blog_id'];
         $baseDir = WP_CONTENT_DIR . '/cache/starcache/assets/' . $blogId;
         if (!is_dir($baseDir)) {
-            $this->assertTrue(mkdir($baseDir, 0755, true));
+            $this->assertTrue(mkdir($baseDir, 0755, true), 'Failed to create cache base directory: ' . $baseDir);
         }
 
         $styles = new \WP_Styles();
