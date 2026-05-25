@@ -219,11 +219,11 @@ class StarResponseController
     private static function sendPublicCacheHeaders(): void
     {
         $maxAge = self::sanitizeDirectiveSeconds(
-            (int) apply_filters('starcache_max_age', self::DEFAULT_MAX_AGE),
+            apply_filters('starcache_max_age', self::DEFAULT_MAX_AGE),
             self::DEFAULT_MAX_AGE
         );
         $swr = self::sanitizeDirectiveSeconds(
-            (int) apply_filters('starcache_stale_while_revalidate', self::DEFAULT_STALE_WHILE_REVALIDATE),
+            apply_filters('starcache_stale_while_revalidate', self::DEFAULT_STALE_WHILE_REVALIDATE),
             self::DEFAULT_STALE_WHILE_REVALIDATE
         );
 
@@ -244,11 +244,16 @@ class StarResponseController
      * invalid Cache-Control headers. This guard keeps header output valid and
      * predictable while still allowing plugin-level TTL customization.
      *
-     * @param int $seconds Requested TTL value from filter callbacks.
+     * @param mixed $value Requested TTL value from filter callbacks.
      * @param int $fallback Default value used when the request is invalid.
      */
-    private static function sanitizeDirectiveSeconds(int $seconds, int $fallback): int
+    private static function sanitizeDirectiveSeconds(mixed $value, int $fallback): int
     {
+        if (!is_numeric($value)) {
+            return max(0, $fallback);
+        }
+
+        $seconds = (int) $value;
         if ($seconds < 0) {
             return max(0, $fallback);
         }
