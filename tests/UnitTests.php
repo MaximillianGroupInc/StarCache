@@ -13,6 +13,124 @@ use StarCache\StarCacheContext;
 use StarCache\StarResponseController;
 use StarCache\StarVersionStore;
 use StarCache\StarQueryCache;
+use StarCache\StarCacheAdapter;
+
+class FakeRedisConnection
+{
+    /** @var array<string,string> */
+    private array $store = [];
+
+    public function get(string $key): string|false
+    {
+        return $this->store[$key] ?? false;
+    }
+
+    public function setEx(string $key, int $expiration, string $value): bool
+    {
+        $this->store[$key] = $value;
+        return true;
+    }
+
+    public function set(string $key, mixed $value, mixed ...$options): bool|string
+    {
+        if (
+            is_array($options[0] ?? null)
+            && (in_array('NX', $options[0], true) || in_array('nx', $options[0], true))
+            && array_key_exists($key, $this->store)
+        ) {
+            return false;
+        }
+        $this->store[$key] = (string) $value;
+        return true;
+    }
+
+    public function del(string $key): int
+    {
+        if (!array_key_exists($key, $this->store)) {
+            return 0;
+        }
+        unset($this->store[$key]);
+        return 1;
+    }
+}
+
+class FakeMemcachedConnection
+{
+    /** @var array<string,string> */
+    private array $store = [];
+
+    private int $resultCode = \Memcached::RES_NOTFOUND;
+
+    public function get(string $key): mixed
+    {
+        if (!array_key_exists($key, $this->store)) {
+            $this->resultCode = \Memcached::RES_NOTFOUND;
+            return false;
+        }
+        $this->resultCode = \Memcached::RES_SUCCESS;
+        return $this->store[$key];
+    }
+
+    public function getResultCode(): int
+    {
+        return $this->resultCode;
+    }
+
+    public function set(string $key, mixed $value, int $expiration = 0): bool
+    {
+        $this->store[$key] = (string) $value;
+        $this->resultCode  = \Memcached::RES_SUCCESS;
+        return true;
+    }
+
+    public function add(string $key, mixed $value, int $expiration = 0): bool
+    {
+        if (array_key_exists($key, $this->store)) {
+            return false;
+        }
+        $this->store[$key] = (string) $value;
+        $this->resultCode  = \Memcached::RES_SUCCESS;
+        return true;
+    }
+
+    public function delete(string $key): bool
+    {
+        unset($this->store[$key]);
+        return true;
+    }
+}
+
+class FakePredisPongResponse
+{
+    public function getPayload(): string
+    {
+        return 'PONG';
+    }
+}
+
+class FakePredisErrorResponse
+{
+    public function getPayload(): string
+    {
+        return 'NOAUTH Authentication required.';
+    }
+}
+
+class FakePredisOkResponse
+{
+    public function getPayload(): string
+    {
+        return 'OK';
+    }
+}
+
+class FakePredisStringOkResponse
+{
+    public function __toString(): string
+    {
+        return 'OK';
+    }
+}
 
 /**
  * StarCache v2.1.1 Test Suite
@@ -27,10 +145,12 @@ use StarCache\StarQueryCache;
  * - StarCacheContext: registration, resolution, constraints, locking, hash
  * - StarResponseController: eligibility checks
  * - StarVersionStore: version get/bump/reset with renamed groups
- * - StarQueryCache: key determinism, version invalidation
+ * - StarQueryCache (legacy utility): key determinism, version invalidation
  */
 class UnitTests extends TestCase
 {
+    private const SOFT_TTL_WAIT_MICROSECONDS = 1100000;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -42,6 +162,10 @@ class UnitTests extends TestCase
         $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
         // Reset the blog-ID stub to 1 so tests that modify it don't pollute later tests.
         $GLOBALS['_starcache_test_blog_id'] = 1;
+        $GLOBALS['_starcache_wp_cache_flush_calls'] = 0;
+        $GLOBALS['_starcache_scheduled_events'] = [];
+        $GLOBALS['_starcache_wpcache'] = [];
+        $this->resetAdapterToWpFallback();
     }
 
     // =========================================================================
@@ -496,12 +620,12 @@ class UnitTests extends TestCase
     public function testBuildAssetFromCronWritesMinifiedCssFile(): void
     {
         $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
-        mkdir($dir, 0755, true);
+        $this->assertTrue(mkdir($dir, 0755, true));
 
         $srcPath  = $dir . '/style.css';
         $destPath = $dir . '/style.min.css';
 
-        file_put_contents($srcPath, "/* comment */ body { color : red ; } ");
+        $this->assertNotFalse(file_put_contents($srcPath, "/* comment */ body { color : red ; } "));
 
         StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'css');
 
@@ -519,12 +643,12 @@ class UnitTests extends TestCase
     public function testBuildAssetFromCronWritesNormalizedJsFile(): void
     {
         $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
-        mkdir($dir, 0755, true);
+        $this->assertTrue(mkdir($dir, 0755, true));
 
         $srcPath  = $dir . '/app.js';
         $destPath = $dir . '/app.min.js';
 
-        file_put_contents($srcPath, "  var x = 1;  \n");
+        $this->assertNotFalse(file_put_contents($srcPath, "  var x = 1;  \n"));
 
         StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'js');
 
@@ -541,13 +665,13 @@ class UnitTests extends TestCase
     public function testBuildAssetFromCronSkipsWhenDestAlreadyExists(): void
     {
         $dir      = sys_get_temp_dir() . '/starcache_test_' . uniqid('', true);
-        mkdir($dir, 0755, true);
+        $this->assertTrue(mkdir($dir, 0755, true));
 
         $srcPath  = $dir . '/style.css';
         $destPath = $dir . '/style.min.css';
 
-        file_put_contents($srcPath, 'body { color: blue }');
-        file_put_contents($destPath, 'original_content');
+        $this->assertNotFalse(file_put_contents($srcPath, 'body { color: blue }'));
+        $this->assertNotFalse(file_put_contents($destPath, 'original_content'));
 
         StarAssetMinifier::buildAssetFromCron($srcPath, $destPath, 'css');
 
@@ -673,6 +797,35 @@ class UnitTests extends TestCase
         $this->assertSame(1, $callCount, 'False values must be cached and reused.');
     }
 
+    public function testRememberLockContentionServesStaleWithoutSecondCallbackRun(): void
+    {
+        $cache     = new StarCache();
+        $callCount = 0;
+        $callback  = static function () use (&$callCount): array {
+            $callCount++;
+            return ['computed' => $callCount];
+        };
+
+        $first = $cache->star_remember('remember_lock_contention', $callback, 2);
+        usleep(self::SOFT_TTL_WAIT_MICROSECONDS); // Let soft TTL (floor(2 * 0.8) = 1s) become stale.
+
+        $keyMethod = new \ReflectionMethod(StarCache::class, 'buildKey');
+        $keyMethod->setAccessible(true);
+        $key = $keyMethod->invoke($cache, 'remember_lock_contention', null);
+
+        $lockMethod = new \ReflectionMethod(StarCache::class, 'buildRememberLockKey');
+        $lockMethod->setAccessible(true);
+        $lockKey = $lockMethod->invoke($cache, $key);
+
+        $group = $cache->star_getUserGroup('remember_lock_contention', null);
+        $this->assertTrue(StarCacheAdapter::add($lockKey, 1, 30, $group));
+
+        $second = $cache->star_remember('remember_lock_contention', $callback, 2);
+
+        $this->assertSame($first, $second);
+        $this->assertSame(1, $callCount, 'Callback should not run again while another lock holder is refreshing.');
+    }
+
     public function testGetCachedDataFoundFlagDistinguishesFalseHitFromMiss(): void
     {
         $cache = new StarCache();
@@ -716,7 +869,7 @@ class UnitTests extends TestCase
     }
 
     // =========================================================================
-    // StarQueryCache — key determinism + version invalidation
+    // StarQueryCache (legacy utility) — key determinism + version invalidation
     // =========================================================================
 
     public function testCachedWpdbQueryKeyIsDeterministic(): void
@@ -813,5 +966,252 @@ class UnitTests extends TestCase
         //  so we use a unique group name to avoid cross-test interference.)
         $uniqueGroup = 'test_qcache_' . uniqid();
         $this->assertSame(1, StarVersionStore::get($uniqueGroup));
+    }
+
+    // =========================================================================
+    // StarAssetMinifier — asynchronous stored-file model
+    // =========================================================================
+
+    public function testAssetFirstRequestServesOriginalThenServesStoredMinifiedFile(): void
+    {
+        $uniqueSuffix = uniqid('', true);
+        $themeName    = 'starcache-test-' . $uniqueSuffix;
+        $assetHandle  = 'theme-style-' . $uniqueSuffix;
+        $assetDir     = WP_CONTENT_DIR . '/themes/' . $themeName;
+        $assetPath    = $assetDir . '/style.css';
+        if (!is_dir($assetDir)) {
+            $this->assertTrue(mkdir($assetDir, 0755, true), 'Failed to create asset directory: ' . $assetDir);
+        }
+        $this->assertNotFalse(file_put_contents($assetPath, '/* c */ body { color : red ; }'));
+
+        $blogId  = (int) $GLOBALS['_starcache_test_blog_id'];
+        $baseDir = WP_CONTENT_DIR . '/cache/starcache/assets/' . $blogId;
+        if (!is_dir($baseDir)) {
+            $this->assertTrue(mkdir($baseDir, 0755, true), 'Failed to create cache base directory: ' . $baseDir);
+        }
+
+        // Remove any leftover cached file for this handle so the first request is always a miss.
+        $cachedPattern = $baseDir . '/' . $assetHandle . '.*';
+        foreach (glob($cachedPattern) ?: [] as $staleFile) {
+            @unlink($staleFile);
+        }
+
+        $styles = new \WP_Styles();
+        $styles->queue            = [$assetHandle];
+        $styles->registered[$assetHandle] = (object) [
+            'src' => WP_CONTENT_URL . '/themes/' . $themeName . '/style.css',
+            'ver' => null,
+        ];
+        $GLOBALS['wp_styles'] = $styles;
+
+        StarAssetMinifier::init();
+        StarAssetMinifier::processStyles();
+        $this->assertSame(
+            WP_CONTENT_URL . '/themes/' . $themeName . '/style.css',
+            $styles->registered[$assetHandle]->src,
+            'First request must keep original asset URL while build is pending.'
+        );
+
+        $scheduled = $GLOBALS['_starcache_scheduled_events'];
+        $this->assertNotEmpty($scheduled, 'First request should schedule an async asset build.');
+        $event = end($scheduled);
+        $args  = $event['args'];
+        StarAssetMinifier::buildAssetFromCron($args[0], $args[1], $args[2]);
+
+        StarAssetMinifier::processStyles();
+        $this->assertStringContainsString('.min.css', $styles->registered[$assetHandle]->src);
+        $this->assertStringContainsString('/cache/starcache/assets/' . $blogId . '/', $styles->registered[$assetHandle]->src);
+    }
+
+    // =========================================================================
+    // StarCacheAdapter — backend round-trip semantics
+    // =========================================================================
+
+    public function testBackendRoundTripRedisValues(): void
+    {
+        $this->assertBackendRoundTripValues(
+            StarCacheAdapter::BACKEND_REDIS,
+            new FakeRedisConnection(),
+            [false, ['a' => 1], 'hello', null]
+        );
+    }
+
+    public function testBackendRoundTripMemcachedValues(): void
+    {
+        $this->assertBackendRoundTripValues(
+            StarCacheAdapter::BACKEND_MEMCACHED,
+            new FakeMemcachedConnection(),
+            [false, ['a' => 1], 'hello', null]
+        );
+    }
+
+    public function testPredisPingHelperAcceptsValidPongResponses(): void
+    {
+        $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulPredisPing');
+        $method->setAccessible(true);
+
+        $this->assertTrue($method->invoke(null, 'PONG'));
+        $this->assertTrue($method->invoke(null, '+PONG'));
+        $this->assertTrue($method->invoke(null, new FakePredisPongResponse()));
+    }
+
+    public function testPredisPingHelperRejectsErrorLikeResponses(): void
+    {
+        $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulPredisPing');
+        $method->setAccessible(true);
+
+        $this->assertFalse($method->invoke(null, null));
+        $this->assertFalse($method->invoke(null, false));
+        $this->assertFalse($method->invoke(null, 'NOAUTH Authentication required.'));
+        $this->assertFalse($method->invoke(null, new FakePredisErrorResponse()));
+    }
+
+    public function testPredisSetResultHelperAcceptsStatusResponses(): void
+    {
+        $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulSetResult');
+        $method->setAccessible(true);
+
+        $this->assertTrue($method->invoke(null, 'OK'));
+        $this->assertTrue($method->invoke(null, '+OK'));
+        $this->assertTrue($method->invoke(null, new FakePredisOkResponse()));
+        $this->assertTrue($method->invoke(null, new FakePredisStringOkResponse()));
+    }
+
+    public function testPredisSetResultHelperRejectsErrorResponses(): void
+    {
+        $method = new \ReflectionMethod(StarCacheAdapter::class, 'isSuccessfulSetResult');
+        $method->setAccessible(true);
+
+        $this->assertFalse($method->invoke(null, null));
+        $this->assertFalse($method->invoke(null, false));
+        $this->assertFalse($method->invoke(null, 'NOAUTH Authentication required.'));
+        $this->assertFalse($method->invoke(null, new FakePredisErrorResponse()));
+    }
+
+    // =========================================================================
+    // Version invalidation — no backend flush
+    // =========================================================================
+
+    public function testVersionBumpInvalidatesWithoutBackendFlush(): void
+    {
+        $group = 'vtest_' . uniqid('', true);
+        $v1Key = StarCacheKey::build('invalidate-key', null, $group);
+        $this->assertTrue(StarCacheAdapter::set($v1Key, 'payload-v1', 3600, 'vtest'));
+
+        $this->assertSame('payload-v1', StarCacheAdapter::get($v1Key, 'vtest'));
+        StarVersionStore::bump($group);
+        $v2Key = StarCacheKey::build('invalidate-key', null, $group);
+        $this->assertNotSame($v1Key, $v2Key);
+        $this->assertFalse(StarCacheAdapter::get($v2Key, 'vtest'));
+        $this->assertSame('payload-v1', StarCacheAdapter::get($v1Key, 'vtest'));
+        $this->assertSame(0, (int) ($GLOBALS['_starcache_wp_cache_flush_calls'] ?? 0));
+    }
+
+    // =========================================================================
+    // Multisite isolation — page, object, query, asset
+    // =========================================================================
+
+    public function testMultisiteBlogIdIsolatesPageObjectDeprecatedQueryAndAssetCacheSpaces(): void
+    {
+        // Object cache space
+        $GLOBALS['_starcache_test_blog_id'] = 1;
+        $obj1 = StarCacheKey::build('obj-test');
+        $GLOBALS['_starcache_test_blog_id'] = 2;
+        $obj2 = StarCacheKey::build('obj-test');
+        $this->assertNotSame($obj1, $obj2);
+
+        // Query cache space (existing StarQueryCache key model)
+        global $wpdb;
+        $wpdb->callCount = 0;
+        $sql = 'SELECT ID FROM wp_posts WHERE post_status = "publish" LIMIT 3';
+        $GLOBALS['_starcache_test_blog_id'] = 1;
+        StarQueryCache::cachedWpdbQuery($sql);
+        StarQueryCache::cachedWpdbQuery($sql);
+        $this->assertSame(1, $wpdb->callCount);
+        $GLOBALS['_starcache_test_blog_id'] = 2;
+        StarQueryCache::cachedWpdbQuery($sql);
+        $this->assertSame(2, $wpdb->callCount);
+
+        // Page cache key space
+        $GLOBALS['_starcache_test_blog_id'] = 1;
+        $page1 = $this->buildPageKeyForTest('http://localhost/sample');
+        $GLOBALS['_starcache_test_blog_id'] = 2;
+        $page2 = $this->buildPageKeyForTest('http://localhost/sample');
+        $this->assertNotSame($page1, $page2);
+
+        // Asset cache directory space
+        $GLOBALS['_starcache_test_blog_id'] = 1;
+        StarAssetMinifier::init();
+        $dir1 = $this->readAssetCacheDir();
+        $GLOBALS['_starcache_test_blog_id'] = 2;
+        StarAssetMinifier::init();
+        $dir2 = $this->readAssetCacheDir();
+        $this->assertNotSame($dir1, $dir2);
+    }
+
+    // =========================================================================
+    // Test helpers
+    // =========================================================================
+
+    private function resetAdapterToWpFallback(): void
+    {
+        $ref = new \ReflectionClass(StarCacheAdapter::class);
+        foreach (
+            [
+                'connection'      => null,
+                'detectedBackend' => StarCacheAdapter::BACKEND_WP,
+                'initialised'     => true,
+            ] as $name => $value
+        ) {
+            $prop = $ref->getProperty($name);
+            $prop->setAccessible(true);
+            $prop->setValue(null, $value);
+        }
+    }
+
+    private function setAdapterBackendForTest(string $backend, object $connection): void
+    {
+        $ref = new \ReflectionClass(StarCacheAdapter::class);
+
+        $connectionProperty = $ref->getProperty('connection');
+        $connectionProperty->setAccessible(true);
+        $connectionProperty->setValue(null, $connection);
+
+        $backendProperty = $ref->getProperty('detectedBackend');
+        $backendProperty->setAccessible(true);
+        $backendProperty->setValue(null, $backend);
+
+        $initialisedProperty = $ref->getProperty('initialised');
+        $initialisedProperty->setAccessible(true);
+        $initialisedProperty->setValue(null, true);
+    }
+
+    /**
+     * @param list<mixed> $values
+     */
+    private function assertBackendRoundTripValues(string $backend, object $connection, array $values): void
+    {
+        $this->setAdapterBackendForTest($backend, $connection);
+        foreach ($values as $index => $value) {
+            $key = 'roundtrip_' . $backend . '_' . $index;
+            $this->assertTrue(StarCacheAdapter::set($key, $value, 120, 'grp'));
+            $hit = StarCacheAdapter::getWithFound($key, 'grp');
+            $this->assertTrue($hit['found'], 'Expected cache hit for ' . $backend . ' value index ' . $index);
+            $this->assertSame($value, $hit['value']);
+        }
+    }
+
+    private function buildPageKeyForTest(string $url): string
+    {
+        $method = new \ReflectionMethod(StarPageCache::class, 'buildPageKeyFromUrl');
+        $method->setAccessible(true);
+        return $method->invoke(null, $url);
+    }
+
+    private function readAssetCacheDir(): string
+    {
+        $prop = new \ReflectionProperty(StarAssetMinifier::class, 'cacheDir');
+        $prop->setAccessible(true);
+        return (string) $prop->getValue();
     }
 }

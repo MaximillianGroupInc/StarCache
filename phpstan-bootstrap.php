@@ -94,6 +94,50 @@ if (!class_exists('WP_Error')) {
     }
 }
 
+if (!class_exists('Redis')) {
+    class Redis
+    {
+        public function connect(string $host, int $port, float $timeout = 0): bool { return false; }
+        public function auth(string $password): bool { return false; }
+        public function select(int $database): bool { return true; }
+        public function get(string $key): string|false { return false; }
+        public function setEx(string $key, int $ttl, string $value): bool { return true; }
+        public function set(string $key, mixed $value, mixed ...$options): bool|string { return true; }
+        public function del(string $key): int { return 1; }
+        public function flushDB(): bool { return true; }
+        public function close(): bool { return true; }
+    }
+}
+
+if (!class_exists('Memcached')) {
+    class Memcached
+    {
+        public const RES_SUCCESS = 0;
+        public const RES_NOTFOUND = 16;
+        public function addServer(string $host, int $port): bool { return true; }
+        public function set(string $key, mixed $value, int $expiration = 0): bool { return true; }
+        public function get(string $key): mixed { return false; }
+        public function getResultCode(): int { return self::RES_NOTFOUND; }
+        public function delete(string $key): bool { return true; }
+        public function flush(): bool { return true; }
+        public function add(string $key, mixed $value, int $expiration = 0): bool { return true; }
+        public function close(): bool { return true; }
+    }
+}
+
+if (!class_exists('Memcache')) {
+    class Memcache
+    {
+        public function connect(string $host, int $port): bool { return false; }
+        public function set(string $key, mixed $value, int $flags = 0, int $expiration = 0): bool { return true; }
+        public function get(string $key): mixed { return false; }
+        public function delete(string $key): bool { return true; }
+        public function flush(): bool { return true; }
+        public function add(string $key, mixed $value, int $flags = 0, int $expiration = 0): bool { return true; }
+        public function close(): bool { return true; }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // WordPress stub functions
 // ---------------------------------------------------------------------------
@@ -106,6 +150,9 @@ if (!function_exists('wp_cache_get')) {
 }
 if (!function_exists('wp_cache_set')) {
     function wp_cache_set(string $key, mixed $data, string $group = '', int $expire = 0): bool { return true; }
+}
+if (!function_exists('wp_cache_add')) {
+    function wp_cache_add(string $key, mixed $data, string $group = '', int $expire = 0): bool { return true; }
 }
 if (!function_exists('wp_cache_delete')) {
     function wp_cache_delete(string $key, string $group = ''): bool { return true; }
@@ -145,6 +192,9 @@ if (!function_exists('is_admin')) {
 }
 if (!function_exists('is_ssl')) {
     function is_ssl(): bool { return false; }
+}
+if (!function_exists('wp_using_ext_object_cache')) {
+    function wp_using_ext_object_cache(): bool { return false; }
 }
 if (!function_exists('apply_filters')) {
     function apply_filters(string $hook, mixed $value, mixed ...$args): mixed { return $value; }

@@ -31,7 +31,10 @@ class StarCacheAdapter
     public const BACKEND_MEMCACHE  = 'memcache';
     public const BACKEND_WP        = 'wp';
 
-    /** @var \Redis|\Memcached|\Memcache|null */
+    private const DEFAULT_GROUP = 'default';
+    private const PONG_TRIM_CHARS = " \t\n\r\0\x0B+";
+
+    /** @var \Redis|\Predis\Client|\Memcached|\Memcache|null */
     private static $connection = null;
 
     /** @var string */
@@ -39,6 +42,9 @@ class StarCacheAdapter
 
     /** @var bool */
     private static bool $initialised = false;
+
+    /** @var array<string,string> */
+    private static array $groupHashCache = [];
 
     /**
      * Initialise the adapter (idempotent – safe to call multiple times).
@@ -55,14 +61,29 @@ class StarCacheAdapter
             if (self::tryRedis()) {
                 return;
             }
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter init redis probe error', $e);
+        }
+        try {
+            if (self::tryPredis()) {
+                return;
+            }
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter init predis probe error', $e);
+        }
+        try {
             if (self::tryMemcached()) {
                 return;
             }
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter init memcached probe error', $e);
+        }
+        try {
             if (self::tryMemcache()) {
                 return;
             }
         } catch (Exception $e) {
-            self::logError('StarCacheAdapter init error', $e);
+            self::logError('StarCacheAdapter init memcache probe error', $e);
         }
 
         // Fallback: WordPress built-in object cache (wp_cache_*)
@@ -82,14 +103,33 @@ class StarCacheAdapter
     }
 
     /**
-     * Returns the raw connection object (Redis / Memcached / Memcache) or null
-     * when the WordPress object cache is used.
+     * Returns the raw connection object (backend-specific) or null when the
+     * WordPress object cache fallback is used.
      *
-     * @return \Redis|\Memcached|\Memcache|null
+     * @return object|null
      */
-    public static function getConnection(): \Redis|\Memcached|\Memcache|null
+    public static function getConnection(): object|null
     {
         return self::$connection;
+    }
+
+    /**
+     * Return backend capability information for operational visibility.
+     *
+     * @return array<string,bool|string>
+     */
+    public static function getBackendCapabilities(): array
+    {
+        return [
+            'phpredis_available'    => extension_loaded('redis'),
+            'predis_available'      => class_exists('\Predis\Client'),
+            'memcached_available'   => extension_loaded('memcached'),
+            'memcache_available'    => extension_loaded('memcache'),
+            'wp_object_cache_add'   => function_exists('wp_cache_add'),
+            'wp_object_cache_flush' => function_exists('wp_cache_flush'),
+            'wp_object_cache_mode'  => self::detectWpObjectCacheMode(),
+            'active_backend'        => self::getBackend(),
+        ];
     }
 
     /**
@@ -108,7 +148,7 @@ class StarCacheAdapter
      * Retrieve a value from the active cache backend.
      *
      * @param string $key
-     * @param string $group  Used only by the WP object cache.
+     * @param string $group  Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
      * @return mixed
      */
     public static function get(string $key, string $group = ''): mixed
@@ -121,7 +161,7 @@ class StarCacheAdapter
      * Retrieve a value plus an explicit hit/miss indicator.
      *
      * @param  string $key
-     * @param  string $group Used only by the WP object cache.
+     * @param  string $group Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
      * @return array{found: bool, value: mixed}
      */
     public static function getWithFound(string $key, string $group = ''): array
@@ -129,8 +169,9 @@ class StarCacheAdapter
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
-                    $value = self::$connection->get($key);
-                    if ($value === false) {
+                    $storageKey = self::buildStorageKey($key, $group);
+                    $value      = self::$connection->get($storageKey);
+                    if ($value === false || $value === null) {
                         return ['found' => false, 'value' => false];
                     }
                     if (!is_string($value)) {
@@ -143,7 +184,8 @@ class StarCacheAdapter
                     return ['found' => true, 'value' => $unserialized];
 
                 case self::BACKEND_MEMCACHED:
-                    $value = self::$connection->get($key);
+                    $storageKey = self::buildStorageKey($key, $group);
+                    $value      = self::$connection->get($storageKey);
                     if ($value === false && self::$connection->getResultCode() === \Memcached::RES_NOTFOUND) {
                         return ['found' => false, 'value' => false];
                     }
@@ -160,7 +202,8 @@ class StarCacheAdapter
                 case self::BACKEND_MEMCACHE:
                     // Memcache::get() returns false on miss AND when the stored value is literally
                     // false. Values are stored serialized so a retrieved string is always a hit.
-                    $value = self::$connection->get($key); // @phpstan-ignore-line
+                    $storageKey = self::buildStorageKey($key, $group);
+                    $value      = self::$connection->get($storageKey); // @phpstan-ignore-line
                     if ($value === false) {
                         return ['found' => false, 'value' => false]; // cache miss (serialized values are strings, never false)
                     }
@@ -190,7 +233,7 @@ class StarCacheAdapter
      * @param string $key
      * @param mixed  $value
      * @param int    $expiration  Seconds (0 = no expiry for WP/Redis).
-     * @param string $group       Used only by the WP object cache.
+     * @param string $group       Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
      * @return bool
      */
     public static function set(string $key, mixed $value, int $expiration = 3600, string $group = ''): bool
@@ -198,21 +241,37 @@ class StarCacheAdapter
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
+                    $storageKey = self::buildStorageKey($key, $group);
                     $serialised = serialize($value);
                     if ($expiration > 0) {
-                        return (bool) self::$connection->setEx($key, $expiration, $serialised);
+                        if (self::isPredisConnection()) {
+                            return self::isSuccessfulSetResult(self::$connection->setex($storageKey, $expiration, $serialised));
+                        }
+                        return (bool) self::$connection->setEx($storageKey, $expiration, $serialised);
                     }
-                    return (bool) self::$connection->set($key, $serialised);
+                    if (self::isPredisConnection()) {
+                        return self::isSuccessfulSetResult(self::$connection->set($storageKey, $serialised));
+                    }
+                    return (bool) self::$connection->set($storageKey, $serialised);
 
                 case self::BACKEND_MEMCACHED:
                     // Serialize to mirror the Redis strategy and allow any PHP value
                     // (including boolean false) to be stored and retrieved unambiguously.
-                    return self::$connection->set($key, serialize($value), $expiration);
+                    return self::$connection->set(
+                        self::buildStorageKey($key, $group),
+                        serialize($value),
+                        $expiration
+                    );
 
                 case self::BACKEND_MEMCACHE:
                     // Memcache::set($key, $value, $flags, $expire) — 0 = no compression.
                     // Serialize for the same reason as Memcached above.
-                    return self::$connection->set($key, serialize($value), 0, $expiration); // @phpstan-ignore-line
+                    return self::$connection->set(
+                        self::buildStorageKey($key, $group),
+                        serialize($value),
+                        0,
+                        $expiration
+                    ); // @phpstan-ignore-line
 
                 default:
                     return wp_cache_set($key, $value, $group, $expiration);
@@ -227,20 +286,20 @@ class StarCacheAdapter
      * Delete a cached value.
      *
      * @param string $key
-     * @param string $group  Used only by the WP object cache.
+     * @param string $group  Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
      */
     public static function delete(string $key, string $group = ''): bool
     {
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
-                    return (bool) self::$connection->del($key);
+                    return (bool) self::$connection->del(self::buildStorageKey($key, $group));
 
                 case self::BACKEND_MEMCACHED:
-                    return self::$connection->delete($key);
+                    return self::$connection->delete(self::buildStorageKey($key, $group));
 
                 case self::BACKEND_MEMCACHE:
-                    return self::$connection->delete($key);
+                    return self::$connection->delete(self::buildStorageKey($key, $group));
 
                 default:
                     return wp_cache_delete($key, $group);
@@ -252,14 +311,24 @@ class StarCacheAdapter
     }
 
     /**
-     * Flush all cache entries (use with care in shared environments).
+     * Flush all cache entries (dangerous; intended for local dev/test only).
      */
     public static function flush(): bool
     {
+        if (!defined('STARCACHE_ALLOW_DANGEROUS_FLUSH') || STARCACHE_ALLOW_DANGEROUS_FLUSH !== true) {
+            self::logMessage(
+                'StarCacheAdapter::flush blocked. This is intended for development/testing only; use version bumps in production. Define STARCACHE_ALLOW_DANGEROUS_FLUSH=true in wp-config.php to enable.'
+            );
+            return false;
+        }
+
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
-                    return (bool) self::$connection->flushAll();
+                    if (self::isPredisConnection()) {
+                        return self::isSuccessfulSetResult(self::$connection->flushdb());
+                    }
+                    return (bool) self::$connection->flushDB();
 
                 case self::BACKEND_MEMCACHED:
                     return self::$connection->flush();
@@ -277,6 +346,56 @@ class StarCacheAdapter
     }
 
     /**
+     * Atomically set only when absent where backend supports add/NX semantics.
+     *
+     * @param mixed $value
+     */
+    public static function add(string $key, mixed $value, int $expiration = 30, string $group = ''): bool
+    {
+        try {
+            $storageKey = self::buildStorageKey($key, $group);
+            $serialised = serialize($value);
+
+            switch (self::$detectedBackend) {
+                case self::BACKEND_REDIS:
+                    if (self::isPredisConnection()) {
+                        $options = ['NX'];
+                        if ($expiration > 0) {
+                            $options['EX'] = $expiration;
+                        }
+                        return self::isSuccessfulSetResult(self::$connection->set($storageKey, $serialised, $options));
+                    }
+
+                    $options = ['NX'];
+                    if ($expiration > 0) {
+                        $options['EX'] = $expiration;
+                    }
+                    $result = self::$connection->set($storageKey, $serialised, $options);
+                    return self::isSuccessfulSetResult($result);
+
+                case self::BACKEND_MEMCACHED:
+                    return self::$connection->add($storageKey, $serialised, $expiration);
+
+                case self::BACKEND_MEMCACHE:
+                    return self::$connection->add($storageKey, $serialised, 0, $expiration); // @phpstan-ignore-line
+
+                default:
+                    if (function_exists('wp_cache_add')) {
+                        return wp_cache_add($key, $value, $group, $expiration);
+                    }
+                    $hit = self::getWithFound($key, $group);
+                    if ($hit['found']) {
+                        return false;
+                    }
+                    return self::set($key, $value, $expiration, $group);
+            }
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter::add', $e);
+            return false;
+        }
+    }
+
+    /**
      * Close the underlying connection (no-op for WP cache).
      */
     public static function close(): void
@@ -287,7 +406,13 @@ class StarCacheAdapter
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
-                    self::$connection->close();
+                    if (self::isPredisConnection()) {
+                        if (method_exists(self::$connection, 'disconnect')) {
+                            self::$connection->disconnect();
+                        }
+                    } else {
+                        self::$connection->close();
+                    }
                     break;
                 case self::BACKEND_MEMCACHED:
                 case self::BACKEND_MEMCACHE:
@@ -330,6 +455,44 @@ class StarCacheAdapter
         }
 
         self::$connection     = $redis;
+        self::$detectedBackend = self::BACKEND_REDIS;
+        return true;
+    }
+
+    private static function tryPredis(): bool
+    {
+        if (!class_exists('\Predis\Client')) {
+            return false;
+        }
+
+        $host     = defined('WP_REDIS_HOST') ? WP_REDIS_HOST : '127.0.0.1';
+        $port     = defined('WP_REDIS_PORT') ? (int) WP_REDIS_PORT : 6379;
+        $password = defined('WP_REDIS_PASSWORD') ? WP_REDIS_PASSWORD : null;
+        $database = defined('WP_REDIS_DATABASE') ? (int) WP_REDIS_DATABASE : 0;
+
+        $params = [
+            'scheme'   => 'tcp',
+            'host'     => $host,
+            'port'     => $port,
+            'database' => $database,
+        ];
+        if (is_string($password) && $password !== '') {
+            $params['password'] = $password;
+        }
+
+        try {
+            $client = new \Predis\Client($params, ['exceptions' => false]);
+            $pong   = $client->ping();
+        } catch (Exception $e) {
+            self::logError('StarCacheAdapter::tryPredis', $e);
+            return false;
+        }
+
+        if (!self::isSuccessfulPredisPing($pong)) {
+            return false;
+        }
+
+        self::$connection      = $client;
         self::$detectedBackend = self::BACKEND_REDIS;
         return true;
     }
@@ -389,6 +552,105 @@ class StarCacheAdapter
     // Logging
     // -------------------------------------------------------------------------
 
+    /**
+     * Build backend-internal namespaced key from logical key+group.
+     */
+    private static function buildStorageKey(string $key, string $group): string
+    {
+        $normalizedGroup = self::normaliseGroup($group);
+        if (!array_key_exists($normalizedGroup, self::$groupHashCache)) {
+            self::$groupHashCache[$normalizedGroup] = substr(hash('sha256', $normalizedGroup), 0, 16);
+        }
+        return 'scg:' . self::$groupHashCache[$normalizedGroup] . ':' . $key;
+    }
+
+    private static function normaliseGroup(string $group): string
+    {
+        $group = strtolower(trim($group));
+        $sanitized = '';
+        $length    = strlen($group);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $group[$i];
+            if (
+                ($char >= 'a' && $char <= 'z')
+                || ($char >= '0' && $char <= '9')
+                || $char === '_'
+                || $char === '-'
+                || $char === ':'
+            ) {
+                $sanitized .= $char;
+            }
+        }
+        $group = $sanitized;
+        return $group !== '' ? $group : self::DEFAULT_GROUP;
+    }
+
+    private static function isPredisConnection(): bool
+    {
+        return class_exists('\Predis\Client') && self::$connection instanceof \Predis\Client;
+    }
+
+    private static function detectWpObjectCacheMode(): string
+    {
+        if (function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache()) {
+            return 'persistent';
+        }
+        return 'runtime';
+    }
+
+    private static function isSuccessfulSetResult(mixed $result): bool
+    {
+        // PhpRedis returns bool; Predis may return "OK" or status response objects.
+        if ($result === true) {
+            return true;
+        }
+
+        if (is_string($result)) {
+            return strtoupper(trim($result, self::PONG_TRIM_CHARS)) === 'OK';
+        }
+
+        if (is_object($result) && method_exists($result, 'getPayload')) {
+            $payload = $result->getPayload();
+            if (is_string($payload)) {
+                return strtoupper(trim($payload, self::PONG_TRIM_CHARS)) === 'OK';
+            }
+        }
+
+        if (is_object($result) && method_exists($result, '__toString')) {
+            return strtoupper(trim((string) $result, self::PONG_TRIM_CHARS)) === 'OK';
+        }
+
+        return false;
+    }
+
+    private static function isSuccessfulPredisPing(mixed $pong): bool
+    {
+        if ($pong === true) {
+            return true;
+        }
+
+        if (is_string($pong)) {
+            return strtoupper(trim($pong, self::PONG_TRIM_CHARS)) === 'PONG';
+        }
+
+        if (!is_object($pong)) {
+            return false;
+        }
+
+        if (method_exists($pong, 'getPayload')) {
+            $payload = $pong->getPayload();
+            if (is_string($payload)) {
+                return strtoupper(trim($payload, self::PONG_TRIM_CHARS)) === 'PONG';
+            }
+        }
+
+        if (method_exists($pong, '__toString')) {
+            return strtoupper(trim((string) $pong, self::PONG_TRIM_CHARS)) === 'PONG';
+        }
+
+        return false;
+    }
+
     private static function logError(string $context, Exception $e): void
     {
         if (class_exists('\StarExceptionHandler')) {
@@ -397,5 +659,11 @@ class StarCacheAdapter
         } else {
             error_log("[StarCache] {$context}: {$e->getMessage()}");
         }
+    }
+
+    private static function logMessage(string $message): void
+    {
+        $exception = new \RuntimeException($message);
+        self::logError('StarCacheAdapter', $exception);
     }
 }

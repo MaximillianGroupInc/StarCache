@@ -90,6 +90,7 @@ $data = $cache->star_getCachedData('user_profile', '42');
 $cache->star_deleteCachedData('user_profile', '42');
 
 // Cache-aside (get-or-set pattern)
+// Uses lock-based soft-TTL stale protection (not full background SWR).
 $posts = $cache->star_remember('homepage_posts', function () {
     return get_posts(['numberposts' => 10]);
 }, 300);
@@ -154,7 +155,7 @@ wp starcache flush
 StarCache probes backends in the following order and uses the first one that
 responds successfully:
 
-1. **Redis** – requires the `redis` PHP extension; reads `WP_REDIS_*` constants.
+1. **Redis** – tries PhpRedis (`ext-redis`) first, then Predis (`\Predis\Client`) using `WP_REDIS_*` constants.
 2. **Memcached** – requires the `memcached` PHP extension; reads `MEMCACHED_SERVERS`.
 3. **Memcache** – requires the `memcache` PHP extension; reads `MEMCACHE_SERVER_HOST/PORT`.
 4. **WordPress object cache** – always available; backed by APCu, file, or database
@@ -162,6 +163,28 @@ responds successfully:
 
 The detected backend is exposed via `StarCacheAdapter::getBackend()` and shown in
 the WordPress admin bar for administrators.
+
+`StarCacheAdapter::getBackendCapabilities()` provides runtime capability detection for:
+
+- PhpRedis availability
+- Predis availability
+- Memcached availability
+- Memcache availability
+- WordPress object-cache add/flush support
+- WordPress object-cache persistence mode (`persistent` vs `runtime`)
+
+### Dangerous flush guard
+
+Global backend flush operations are blocked by default and intended only for development/testing.
+In production, prefer version bump invalidation and edge purge flows. To allow a backend flush explicitly:
+
+```php
+define('STARCACHE_ALLOW_DANGEROUS_FLUSH', true);
+```
+
+Without this constant, `StarCacheAdapter::flush()` returns `false` and logs a warning.
+Treat `StarCacheAdapter::flush()` as local dev/test tooling only. In production,
+invalidate via version bumping plus edge/cache-layer purge flows instead of backend flushes.
 
 ---
 
@@ -201,4 +224,3 @@ Contributions are welcome! Please see [CONTRIBUTING.md](contributing.md) for det
 
 If you encounter any issues or have questions, please open an issue on the
 [GitHub repository](https://github.com/MaximillianGroupInc/StarCache).
-

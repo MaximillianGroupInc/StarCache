@@ -50,6 +50,18 @@ class StarCache
     /** Cache group used for all data managed by this class. */
     public const CACHE_GROUP = 'starcache_data';
 
+    /** Internal envelope marker used by remember() payloads. */
+    private const REMEMBER_ENVELOPE_V1 = 'starcache.remember.v1';
+
+    /** Default soft-TTL ratio for remember() entries. */
+    private const DEFAULT_SOFT_TTL_RATIO = 0.8;
+
+    /** Default lock TTL in seconds for stampede protection. */
+    private const DEFAULT_REMEMBER_LOCK_TTL = 15;
+
+    /** Max lock wait in milliseconds when stale-while-revalidate is disabled. */
+    private const DEFAULT_REMEMBER_WAIT_MS = 200;
+
     // ------------------------------------------------------------------
     // Constructor
     // ------------------------------------------------------------------
@@ -169,8 +181,9 @@ class StarCache
     /**
      * Get or set a cached value using a callback (cache-aside pattern).
      *
-     * Returns the cached value if available; otherwise calls $callback,
-     * stores the result, and returns it.
+     * Uses lock-based soft-TTL stale protection. When stale data exists, the
+     * lock holder recomputes synchronously while other callers can reuse stale
+     * data (or briefly wait when stale reuse is disabled via filter).
      *
      * @param  string      $reference
      * @param  callable    $callback   Must return the value to cache.
@@ -180,15 +193,72 @@ class StarCache
      */
     public function star_remember(string $reference, callable $callback, int $ttl = 0, ?string $userId = null): mixed
     {
-        $found  = false;
-        $cached = $this->star_getCachedData($reference, $userId, $found);
-        if ($found) {
-            return $cached;
+        $hardTtl = $ttl > 0 ? $ttl : self::CACHE_EXPIRATION_DYNAMIC;
+        $softTtl = $this->resolveSoftTtl($hardTtl);
+        $staleWhileRevalidate = (bool) apply_filters('starcache_remember_swr_enabled', true);
+
+        $key     = $this->buildKey($reference, $userId);
+        $group   = $this->star_getUserGroup($reference, $userId);
+        $lockKey = $this->buildRememberLockKey($key);
+
+        $hit = StarCacheAdapter::getWithFound($key, $group);
+        if ($hit['found']) {
+            $entry = $this->normalizeRememberEntry($hit['value'], $softTtl, $hardTtl);
+            if ($entry['isFresh']) {
+                return $entry['value'];
+            }
+
+            if (StarCacheAdapter::add($lockKey, 1, self::DEFAULT_REMEMBER_LOCK_TTL, $group)) {
+                try {
+                    $value = $callback();
+                    $this->storeRememberEntry($key, $group, $value, $softTtl, $hardTtl);
+                    return $value;
+                } finally {
+                    StarCacheAdapter::delete($lockKey, $group);
+                }
+            }
+
+            if ($staleWhileRevalidate && !$entry['isPastHardTtl']) {
+                return $entry['value'];
+            }
+
+            $reloaded = $this->waitForRememberRefresh($key, $group);
+            if ($reloaded['found']) {
+                $latest = $this->normalizeRememberEntry($reloaded['value'], $softTtl, $hardTtl);
+                if (!$latest['isPastHardTtl']) {
+                    return $latest['value'];
+                }
+            }
+        }
+
+        if (StarCacheAdapter::add($lockKey, 1, self::DEFAULT_REMEMBER_LOCK_TTL, $group)) {
+            try {
+                $race = StarCacheAdapter::getWithFound($key, $group);
+                if ($race['found']) {
+                    $entry = $this->normalizeRememberEntry($race['value'], $softTtl, $hardTtl);
+                    if ($entry['isFresh']) {
+                        return $entry['value'];
+                    }
+                }
+
+                $value = $callback();
+                $this->storeRememberEntry($key, $group, $value, $softTtl, $hardTtl);
+                return $value;
+            } finally {
+                StarCacheAdapter::delete($lockKey, $group);
+            }
+        }
+
+        $reloaded = $this->waitForRememberRefresh($key, $group);
+        if ($reloaded['found']) {
+            $entry = $this->normalizeRememberEntry($reloaded['value'], $softTtl, $hardTtl);
+            if (!$entry['isPastHardTtl']) {
+                return $entry['value'];
+            }
         }
 
         $value = $callback();
-        $this->star_setCachedDataWithTtl($value, $reference, $ttl ?: self::CACHE_EXPIRATION_DYNAMIC, $userId);
-
+        $this->storeRememberEntry($key, $group, $value, $softTtl, $hardTtl);
         return $value;
     }
 
@@ -250,7 +320,7 @@ class StarCache
 
         if (!$isStatic && $cacheKey) {
             global $wpdb;
-            if (!isset($wpdb)) {
+            if (!is_object($wpdb)) {
                 return;
             }
 
@@ -279,6 +349,69 @@ class StarCache
     private function buildKey(string $reference, ?string $userId): string
     {
         return StarCacheKey::build($reference, $userId, StarVersionStore::GROUP_OBJECTS);
+    }
+
+    private function buildRememberLockKey(string $key): string
+    {
+        return 'remember_lock:' . $key;
+    }
+
+    /**
+     * @return array{value:mixed,isFresh:bool,isPastHardTtl:bool}
+     */
+    private function normalizeRememberEntry(mixed $raw, int $softTtl, int $hardTtl): array
+    {
+        if (
+            is_array($raw)
+            && ($raw['marker'] ?? '') === self::REMEMBER_ENVELOPE_V1
+            && array_key_exists('value', $raw)
+        ) {
+            $createdAt     = (int) ($raw['created_at'] ?? 0);
+            $soft          = max(1, (int) ($raw['soft_ttl'] ?? $softTtl));
+            $hard          = max($soft, (int) ($raw['hard_ttl'] ?? $hardTtl));
+            $age           = max(0, time() - $createdAt);
+            $fresh         = $age < $soft;
+            $isPastHardTtl = $age >= $hard;
+
+            return ['value' => $raw['value'], 'isFresh' => $fresh && !$isPastHardTtl, 'isPastHardTtl' => $isPastHardTtl];
+        }
+
+        return ['value' => $raw, 'isFresh' => true, 'isPastHardTtl' => false];
+    }
+
+    private function storeRememberEntry(string $key, string $group, mixed $value, int $softTtl, int $hardTtl): bool
+    {
+        $payload = [
+            'marker'     => self::REMEMBER_ENVELOPE_V1,
+            'value'      => $value,
+            'created_at' => time(),
+            'soft_ttl'   => $softTtl,
+            'hard_ttl'   => $hardTtl,
+        ];
+        return StarCacheAdapter::set($key, $payload, $hardTtl, $group);
+    }
+
+    private function resolveSoftTtl(int $hardTtl): int
+    {
+        $default = max(1, (int) floor($hardTtl * self::DEFAULT_SOFT_TTL_RATIO));
+        $softTtl = (int) apply_filters('starcache_remember_soft_ttl', $default, $hardTtl);
+        // Keep soft TTL valid even for very short hard TTLs.
+        return max(1, min($softTtl, $hardTtl));
+    }
+
+    /**
+     * @return array{found:bool,value:mixed}
+     */
+    private function waitForRememberRefresh(string $key, string $group): array
+    {
+        $waitMs = (int) apply_filters('starcache_remember_lock_wait_ms', self::DEFAULT_REMEMBER_WAIT_MS);
+        $waitMs = max(0, $waitMs);
+        if ($waitMs <= 0) {
+            return ['found' => false, 'value' => false];
+        }
+
+        usleep($waitMs * 1000);
+        return StarCacheAdapter::getWithFound($key, $group);
     }
 
     /**

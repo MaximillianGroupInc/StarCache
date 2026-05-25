@@ -47,6 +47,9 @@ class StarAssetMinifier
      */
     public const CRON_HOOK = 'starcache_build_asset';
 
+    /** Run stale hashed-file cleanup in ~5% of requests. */
+    private const CLEANUP_PROBABILITY_DIVISOR = 20;
+
     /** @var string Filesystem path to the asset cache directory. */
     private static string $cacheDir = '';
 
@@ -229,12 +232,21 @@ class StarAssetMinifier
 
         $minified = ($type === 'css') ? self::minifyCss($source) : self::normalizeJs($source);
 
-        // Write atomically via temp file so partial writes are never visible.
-        $tmpPath = $destPath . '.tmp';
-        if (file_put_contents($tmpPath, $minified) === false) {
+        // Write atomically via unique temp file so partial writes are never visible.
+        try {
+            $tmpPath = $destPath . '.tmp.' . bin2hex(random_bytes(8));
+        } catch (\Exception $e) {
+            error_log('[StarCache] random_bytes() failed for asset temp name, falling back to uniqid(): ' . $e->getMessage());
+            $tmpPath = $destPath . '.tmp.' . uniqid('', true);
+        }
+        if (file_put_contents($tmpPath, $minified, LOCK_EX) === false) {
             return;
         }
-        rename($tmpPath, $destPath);
+
+        if (!@rename($tmpPath, $destPath)) {
+            @unlink($tmpPath);
+            return;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -313,6 +325,8 @@ class StarAssetMinifier
             }
             return;
         }
+
+        self::cleanupStaleHashedAssets($safeHandle, $fileName);
 
         // Minified file already exists — swap src and bump the version so
         // browsers and CDNs re-fetch after any cache is cleared.
@@ -412,5 +426,31 @@ class StarAssetMinifier
             return false;
         }
         return (bool) apply_filters('starcache_minify_enabled', true);
+    }
+
+    /**
+     * Remove old hashed files for the same handle to keep cache growth bounded.
+     */
+    private static function cleanupStaleHashedAssets(string $safeHandle, string $currentFileName): void
+    {
+        // Keep cleanup lightweight in frontend hot paths.
+        // With divisor=20, this runs 1/20 requests (~5% sampling).
+        // TODO: Move this cleanup path to a scheduled cron job.
+        if (mt_rand(1, self::CLEANUP_PROBABILITY_DIVISOR) !== 1) {
+            return;
+        }
+
+        $pattern = self::$cacheDir . '/' . $safeHandle . '-*.min.{css,js}';
+        $files   = glob($pattern, GLOB_BRACE);
+        if (!$files) {
+            return;
+        }
+
+        foreach ($files as $file) {
+            if (basename($file) === $currentFileName) {
+                continue;
+            }
+            @unlink($file);
+        }
     }
 }
