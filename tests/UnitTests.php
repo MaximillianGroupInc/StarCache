@@ -14,6 +14,7 @@ use StarCache\StarResponseController;
 use StarCache\StarVersionStore;
 use StarCache\StarQueryCache;
 use StarCache\StarCacheAdapter;
+use StarCache\StarTransientCache;
 
 class FakeRedisConnection
 {
@@ -165,6 +166,7 @@ class UnitTests extends TestCase
         $GLOBALS['_starcache_wp_cache_flush_calls'] = 0;
         $GLOBALS['_starcache_scheduled_events'] = [];
         $GLOBALS['_starcache_wpcache'] = [];
+        $GLOBALS['_starcache_transients'] = [];
         $this->resetAdapterToWpFallback();
     }
 
@@ -888,6 +890,61 @@ class UnitTests extends TestCase
     public function testIsOpcacheEnabledReturnsBool(): void
     {
         $this->assertIsBool((new StarCache())->star_isOpcacheEnabled());
+    }
+
+    // =========================================================================
+    // StarTransientCache — site/network key spaces and lifecycle
+    // =========================================================================
+
+    public function testTransientCacheSetGetAndDeleteRoundTrip(): void
+    {
+        $this->assertTrue(StarTransientCache::star_setCachedData(['ok' => true], 'transient_roundtrip'));
+        $this->assertSame(['ok' => true], StarTransientCache::star_getCachedData('transient_roundtrip'));
+        StarTransientCache::star_deleteCache('transient_roundtrip');
+        $this->assertFalse(StarTransientCache::star_getCachedData('transient_roundtrip'));
+    }
+
+    public function testTransientCacheIsolatedByBlogId(): void
+    {
+        $GLOBALS['_starcache_test_blog_id'] = 1;
+        $this->assertTrue(StarTransientCache::star_setCachedData('site-1', 'transient_blog_isolation'));
+
+        $GLOBALS['_starcache_test_blog_id'] = 2;
+        $this->assertFalse(StarTransientCache::star_getCachedData('transient_blog_isolation'));
+        $this->assertTrue(StarTransientCache::star_setCachedData('site-2', 'transient_blog_isolation'));
+        $this->assertSame('site-2', StarTransientCache::star_getCachedData('transient_blog_isolation'));
+
+        $GLOBALS['_starcache_test_blog_id'] = 1;
+        $this->assertSame('site-1', StarTransientCache::star_getCachedData('transient_blog_isolation'));
+    }
+
+    public function testNetworkTransientSharedAcrossBlogIdsAndDeletable(): void
+    {
+        $GLOBALS['_starcache_test_blog_id'] = 1;
+        $this->assertTrue(StarTransientCache::star_setNetworkCachedData('network-value', 'network_transient'));
+
+        $GLOBALS['_starcache_test_blog_id'] = 2;
+        $this->assertSame('network-value', StarTransientCache::star_getNetworkCachedData('network_transient'));
+
+        StarTransientCache::star_deleteNetworkCache('network_transient');
+        $this->assertFalse(StarTransientCache::star_getNetworkCachedData('network_transient'));
+    }
+
+    // =========================================================================
+    // StarCacheAdapter — add/flush safety behavior
+    // =========================================================================
+
+    public function testAdapterAddStoresOnlyWhenAbsentInWpFallback(): void
+    {
+        $this->assertTrue(StarCacheAdapter::add('adapter_add', 'first', 30, 'group'));
+        $this->assertFalse(StarCacheAdapter::add('adapter_add', 'second', 30, 'group'));
+        $this->assertSame('first', StarCacheAdapter::get('adapter_add', 'group'));
+    }
+
+    public function testAdapterFlushBlockedWithoutDangerousFlushConstant(): void
+    {
+        $this->assertFalse(StarCacheAdapter::flush());
+        $this->assertSame(0, (int) ($GLOBALS['_starcache_wp_cache_flush_calls'] ?? -1));
     }
 
     // =========================================================================
