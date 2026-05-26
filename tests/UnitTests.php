@@ -484,6 +484,28 @@ class UnitTests extends TestCase
         $this->assertFalse(StarResponseController::isEligible());
     }
 
+    public function testResponseControllerSanitizeDirectiveSecondsFallsBackForNegativeValue(): void
+    {
+        $method = new \ReflectionMethod(StarResponseController::class, 'sanitizeDirectiveSeconds');
+        $method->setAccessible(true);
+
+        $maxAge = $method->invoke(null, -15, StarResponseController::DEFAULT_MAX_AGE);
+        $swr    = $method->invoke(null, -3, StarResponseController::DEFAULT_STALE_WHILE_REVALIDATE);
+
+        $this->assertSame(StarResponseController::DEFAULT_MAX_AGE, $maxAge);
+        $this->assertSame(StarResponseController::DEFAULT_STALE_WHILE_REVALIDATE, $swr);
+    }
+
+    public function testResponseControllerSanitizeDirectiveSecondsFallsBackForInvalidType(): void
+    {
+        $method = new \ReflectionMethod(StarResponseController::class, 'sanitizeDirectiveSeconds');
+        $method->setAccessible(true);
+
+        $this->assertSame(120, $method->invoke(null, null, 120));
+        $this->assertSame(90, $method->invoke(null, 'not-a-number', 90));
+        $this->assertSame(0, $method->invoke(null, false, -10));
+    }
+
     // =========================================================================
     // StarVersionStore — renamed groups
     // =========================================================================
