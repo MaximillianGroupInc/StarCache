@@ -32,7 +32,7 @@ without manual plumbing.
 2. Move `wp-content/mu-plugins/starcache/starcache.php` to `wp-content/mu-plugins/starcache.php`.
 3. Keep the remaining StarCache class files inside `wp-content/mu-plugins/starcache/`.
 4. The plugin then loads automatically as an MU-plugin.
-3. If you are using Composer, add the package:
+5. If you are using Composer, add the package:
 
 ```bash
 composer require maximilliangroupinc/starcache

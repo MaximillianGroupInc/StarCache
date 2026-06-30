@@ -42,6 +42,7 @@ jobs:
             StarResponseController.php \
             StarTransientCache.php \
             StarVersionStore.php \
+            uninstall.php \
             "$PKG_DIR"/
 
           (cd "$PKG_ROOT" && zip -r "$(basename "$ARCHIVE")" "starcache")
