@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace StarCache;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 use Exception;
 
 /**
@@ -385,7 +389,12 @@ class StarPageCache
             return;
         }
         $path        = ($parsed['path'] ?? '/');
-        $requestHost = $parsed['host'] ?? ($_SERVER['HTTP_HOST'] ?? 'localhost');
+        $requestHost = 'localhost';
+        if (array_key_exists('host', $parsed) && is_string($parsed['host']) && $parsed['host'] !== '') {
+            $requestHost = $parsed['host'];
+        } elseif (array_key_exists('HTTP_HOST', $_SERVER) && is_string($_SERVER['HTTP_HOST']) && $_SERVER['HTTP_HOST'] !== '') {
+            $requestHost = $_SERVER['HTTP_HOST'];
+        }
 
         if (!empty($parsed['query'])) {
             $path .= '?' . $parsed['query'];
@@ -450,8 +459,14 @@ class StarPageCache
     private static function currentUrl(): string
     {
         $scheme = (function_exists('is_ssl') && is_ssl()) ? 'https' : 'http';
-        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $uri    = $_SERVER['REQUEST_URI'] ?? '/';
+        $host = 'localhost';
+        if (array_key_exists('HTTP_HOST', $_SERVER) && is_string($_SERVER['HTTP_HOST']) && $_SERVER['HTTP_HOST'] !== '') {
+            $host = $_SERVER['HTTP_HOST'];
+        }
+        $uri = '/';
+        if (array_key_exists('REQUEST_URI', $_SERVER) && is_string($_SERVER['REQUEST_URI']) && $_SERVER['REQUEST_URI'] !== '') {
+            $uri = $_SERVER['REQUEST_URI'];
+        }
         return $scheme . '://' . $host . $uri;
     }
 

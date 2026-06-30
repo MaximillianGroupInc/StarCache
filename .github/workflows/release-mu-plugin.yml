@@ -1,0 +1,59 @@
+name: Release MU Plugin Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build MU-plugin package
+        run: |
+          set -eu
+          PKG_ROOT="dist"
+          PKG_DIR="$PKG_ROOT/starcache"
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          ARCHIVE="$PKG_ROOT/starcache-mu-plugin-${VERSION}.zip"
+
+          rm -rf "$PKG_ROOT"
+          mkdir -p "$PKG_DIR"
+
+          cp \
+            LICENSE \
+            README.md \
+            starcache.php \
+            StarAssetMinifier.php \
+            StarCache.php \
+            StarCacheAdapter.php \
+            StarCacheContext.php \
+            StarCacheKey.php \
+            StarPageCache.php \
+            StarQueryCache.php \
+            StarResponseController.php \
+            StarTransientCache.php \
+            StarVersionStore.php \
+            "$PKG_DIR"/
+
+          (cd "$PKG_ROOT" && zip -r "$(basename "$ARCHIVE")" "starcache")
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: starcache-mu-plugin-${{ github.ref_name || github.run_id }}
+          path: dist/*.zip
+
+      - name: Publish release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip

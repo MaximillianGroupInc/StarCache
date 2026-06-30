@@ -292,4 +292,10 @@ namespace {
             return star_cache()->star_remember($reference, $callback, $ttl, $userId);
         }
     }
+
+    if (function_exists('register_deactivation_hook')) {
+        register_deactivation_hook(__FILE__, static function (): void {
+            \StarCache\StarAssetMinifier::clearScheduledBuilds();
+        });
+    }
 }

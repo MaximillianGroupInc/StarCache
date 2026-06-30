@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace StarCache;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 /**
  * StarCacheContext — Context Engine
  *
@@ -360,7 +364,10 @@ class StarCacheContext
      */
     private static function resolveDevice(): string
     {
-        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $ua = '';
+        if (array_key_exists('HTTP_USER_AGENT', $_SERVER) && is_string($_SERVER['HTTP_USER_AGENT'])) {
+            $ua = $_SERVER['HTTP_USER_AGENT'];
+        }
         if (preg_match('/mobile|android|iphone|ipod|blackberry|opera mini|windows phone/i', $ua)) {
             return self::DEVICE_MOBILE;
         }
@@ -379,7 +386,10 @@ class StarCacheContext
     private static function resolveExperiment(): string
     {
         $cookieName = (string) apply_filters('starcache_experiment_cookie', 'starcache_experiment');
-        $raw        = $_COOKIE[$cookieName] ?? '';
+        $raw = '';
+        if (array_key_exists($cookieName, $_COOKIE) && is_string($_COOKIE[$cookieName])) {
+            $raw = $_COOKIE[$cookieName];
+        }
         return self::sanitizeValue($raw, self::DIM_EXPERIMENT);
     }
 

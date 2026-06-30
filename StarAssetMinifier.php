@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace StarCache;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 /**
  * StarAssetMinifier
  *
@@ -270,6 +274,17 @@ class StarAssetMinifier
         foreach ($files as $file) {
             @unlink($file);
         }
+    }
+
+    /**
+     * Clear pending asset-build cron events for the current site.
+     */
+    public static function clearScheduledBuilds(): void
+    {
+        if (!function_exists('wp_clear_scheduled_hook')) {
+            return;
+        }
+        wp_clear_scheduled_hook(self::CRON_HOOK);
     }
 
     // -------------------------------------------------------------------------
