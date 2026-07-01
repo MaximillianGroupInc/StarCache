@@ -1,5 +1,12 @@
 # Copilot Review Instructions
 
+## Coding guidelines
+
+- Keep StarCache compatible with both regular plugin activation and MU-plugin loading.
+- Preserve the `starcache.php` bootloader as the root entrypoint for WordPress.
+- Prefer namespaced, typed PHP with PSR-style organization.
+- For production hardening, prioritize security, multisite safety, and safe lifecycle behavior.
+
 ## Reference repositories (read via MCP)
 
 Before reviewing any PR, read these repos:

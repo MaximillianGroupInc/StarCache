@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace StarCache;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 /**
  * StarQueryCache — DEPRECATED
  *
@@ -91,7 +95,8 @@ class StarQueryCache
         }
 
         $key = self::buildQueryKey($query);
-        $ttl = (int) apply_filters('starcache_query_ttl', self::TTL_QUERY);
+        $filteredTtl = apply_filters('starcache_query_ttl', self::TTL_QUERY);
+        $ttl         = is_numeric($filteredTtl) ? (int) $filteredTtl : self::TTL_QUERY;
 
         $payload = [
             'posts'         => $posts,

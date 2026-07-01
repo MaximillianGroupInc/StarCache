@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace StarCache;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 /**
  * StarAssetMinifier
  *
@@ -37,6 +41,9 @@ namespace StarCache;
  */
 class StarAssetMinifier
 {
+    /** Relative cache directory beneath wp-content when not overridden. */
+    private const DEFAULT_CACHE_SUBDIR = '/cache/starcache/assets';
+
     /**
      * WP-Cron hook name used to schedule asynchronous asset builds.
      *
@@ -70,20 +77,7 @@ class StarAssetMinifier
             return;
         }
 
-        $blogId = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
-
-        $baseDir = defined('STARCACHE_ASSET_DIR')
-            ? rtrim(STARCACHE_ASSET_DIR, '/')
-            : (defined('WP_CONTENT_DIR')
-                ? WP_CONTENT_DIR . '/cache/starcache/assets'
-                : sys_get_temp_dir() . '/starcache/assets');
-
-        $baseUrl = defined('STARCACHE_ASSET_URL')
-            ? rtrim(STARCACHE_ASSET_URL, '/')
-            : (defined('WP_CONTENT_URL') ? WP_CONTENT_URL . '/cache/starcache/assets' : '');
-
-        self::$cacheDir = $baseDir . '/' . $blogId;
-        self::$cacheUrl = $baseUrl . '/' . $blogId;
+        self::resolveCachePaths();
 
         if (!is_dir(self::$cacheDir)) {
             wp_mkdir_p(self::$cacheDir);
@@ -236,7 +230,11 @@ class StarAssetMinifier
         try {
             $tmpPath = $destPath . '.tmp.' . bin2hex(random_bytes(8));
         } catch (\Exception $e) {
-            error_log('[StarCache] random_bytes() failed for asset temp name, falling back to uniqid(): ' . $e->getMessage());
+            error_log(
+                '[StarCache] random_bytes() failed for asset temp name, '
+                . 'falling back to uniqid(): '
+                . $e->getMessage()
+            );
             $tmpPath = $destPath . '.tmp.' . uniqid('', true);
         }
         if (file_put_contents($tmpPath, $minified, LOCK_EX) === false) {
@@ -258,6 +256,8 @@ class StarAssetMinifier
      */
     public static function flushAssets(): void
     {
+        self::resolveCachePaths();
+
         if (!is_dir(self::$cacheDir)) {
             return;
         }
@@ -270,6 +270,49 @@ class StarAssetMinifier
         foreach ($files as $file) {
             @unlink($file);
         }
+    }
+
+    /**
+     * Clear pending asset-build cron events for the current site.
+     */
+    public static function clearScheduledBuilds(): void
+    {
+        if (!function_exists('wp_clear_scheduled_hook')) {
+            return;
+        }
+        wp_clear_scheduled_hook(self::CRON_HOOK);
+    }
+
+    /**
+     * Remove all generated asset files and the site-specific cache directory.
+     */
+    public static function removeAssetCacheDirectory(): void
+    {
+        self::resolveCachePaths();
+
+        if (!is_dir(self::$cacheDir)) {
+            return;
+        }
+
+        self::flushAssets();
+
+        $entries = scandir(self::$cacheDir);
+        if (!is_array($entries)) {
+            return;
+        }
+
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            $entryPath = self::$cacheDir . '/' . $entry;
+            if (is_file($entryPath)) {
+                @unlink($entryPath);
+            }
+        }
+
+        @rmdir(self::$cacheDir);
     }
 
     // -------------------------------------------------------------------------
@@ -286,7 +329,7 @@ class StarAssetMinifier
     private static function processAsset(\WP_Dependencies $deps, string $handle, string $type): void
     {
         $registered = $deps->registered[$handle] ?? null;
-        if (!$registered || empty($registered->src)) {
+        if ($registered === null || $registered->src === '') {
             return;
         }
 
@@ -349,7 +392,9 @@ class StarAssetMinifier
         }
 
         // Strip query string
-        $url = strtok($url, '?');
+        // Avoid strtok() here because it relies on shared internal state.
+        $parts = explode('?', $url, 2);
+        $url = $parts[0];
 
         $contentUrl = defined('WP_CONTENT_URL') ? WP_CONTENT_URL : '';
         $siteUrl    = defined('WP_SITEURL')     ? WP_SITEURL    : (function_exists('site_url') ? site_url() : '');
@@ -426,6 +471,33 @@ class StarAssetMinifier
             return false;
         }
         return (bool) apply_filters('starcache_minify_enabled', true);
+    }
+
+    /**
+     * Resolve the current site's asset cache paths.
+     */
+    private static function resolveCachePaths(): void
+    {
+        $blogId = function_exists('get_current_blog_id') ? get_current_blog_id() : 1;
+
+        $baseDir = defined('STARCACHE_ASSET_DIR')
+            ? rtrim(STARCACHE_ASSET_DIR, '/')
+            : (
+                defined('WP_CONTENT_DIR')
+                ? WP_CONTENT_DIR . self::DEFAULT_CACHE_SUBDIR
+                : sys_get_temp_dir() . self::DEFAULT_CACHE_SUBDIR
+            );
+
+        $baseUrl = defined('STARCACHE_ASSET_URL')
+            ? rtrim(STARCACHE_ASSET_URL, '/')
+            : (
+                defined('WP_CONTENT_URL')
+                ? WP_CONTENT_URL . self::DEFAULT_CACHE_SUBDIR
+                : ''
+            );
+
+        self::$cacheDir = $baseDir . '/' . $blogId;
+        self::$cacheUrl = $baseUrl !== '' ? $baseUrl . '/' . $blogId : '';
     }
 
     /**
