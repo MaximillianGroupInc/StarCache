@@ -14,11 +14,11 @@ jobs:
   # can be aware of the canonical/ratified state relative to the local
   # draft in docs/starcache-tech-spec.md.
   pull-spec:
-    uses: Starisian-Technologies/sparxstar-product-specification-registry/.github/workflows/fetch-specs.yml@v1
+    uses: Starisian-Technologies/sparxstar-product-specification-registry/.github/workflows/fetch-specs.yml@v1.0.1
     with:
       specs: "starcache"
       agent-ref: main
-      contract-ref: "v1.0.0"
+      contract-ref: "v1.0.1"
     secrets:
       COMPOSER_RESOLVER_PRIVATE_KEY: ${{ secrets.COMPOSER_RESOLVER_PRIVATE_KEY }}
 
