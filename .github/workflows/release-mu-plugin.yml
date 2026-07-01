@@ -31,6 +31,7 @@ jobs:
           cp \
             LICENSE \
             README.md \
+            index.php \
             starcache.php \
             StarAssetMinifier.php \
             StarCache.php \
@@ -38,6 +39,7 @@ jobs:
             StarCacheContext.php \
             StarCacheKey.php \
             StarPageCache.php \
+            StarPluginLifecycle.php \
             StarQueryCache.php \
             StarResponseController.php \
             StarTransientCache.php \

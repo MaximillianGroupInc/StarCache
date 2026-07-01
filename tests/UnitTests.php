@@ -152,8 +152,6 @@ class FakePredisStringOkResponse
  */
 class UnitTests extends TestCase
 {
-    private const SOFT_TTL_WAIT_MICROSECONDS = 1100000;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -831,9 +829,8 @@ class UnitTests extends TestCase
             $callCount++;
             return ['computed' => $callCount];
         };
-
         $first = $cache->star_remember('remember_lock_contention', $callback, 2);
-        usleep(self::SOFT_TTL_WAIT_MICROSECONDS); // Let soft TTL (floor(2 * 0.8) = 1s) become stale.
+        $first = $cache->star_remember('remember_lock_contention', $callback, 2);
 
         $keyMethod = new \ReflectionMethod(StarCache::class, 'buildKey');
         $keyMethod->setAccessible(true);
@@ -844,6 +841,16 @@ class UnitTests extends TestCase
         $lockKey = $lockMethod->invoke($cache, $key);
 
         $group = $cache->star_getUserGroup('remember_lock_contention', null);
+        $stored = StarCacheAdapter::getWithFound($key, $group);
+        $this->assertTrue($stored['found']);
+        $this->assertIsArray($stored['value']);
+
+        $stalePayload = $stored['value'];
+        $stalePayload['created_at'] = time() - 5;
+        $stalePayload['soft_ttl'] = 1;
+        $stalePayload['hard_ttl'] = 30;
+        $this->assertTrue(StarCacheAdapter::set($key, $stalePayload, 30, $group));
+
         $this->assertTrue(StarCacheAdapter::add($lockKey, 1, 30, $group));
 
         $second = $cache->star_remember('remember_lock_contention', $callback, 2);
