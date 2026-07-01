@@ -49,13 +49,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           path: source
       - name: Check if spec changed
         id: check
         run: |
           cd source
-          CHANGED=$(git diff HEAD~1 --name-only -- docs/*-tech-spec.md || echo "")
+          # Diff against the pre-push SHA, not HEAD~1 — a push can carry more
+          # than one commit (fast-forward merge, direct multi-commit push),
+          # and HEAD~1 only ever looks at the single most recent commit.
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            BEFORE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+          fi
+          if [ -n "$BEFORE" ]; then
+            CHANGED=$(git diff "$BEFORE" HEAD --name-only -- docs/*-tech-spec.md || echo "")
+          else
+            CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- docs/*-tech-spec.md || echo "")
+          fi
           if [ -n "$CHANGED" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else

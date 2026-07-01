@@ -28,7 +28,7 @@ Redis, Memcached, Memcache, or the WordPress object cache.
 - Product key: `starcache`
 - License: Apache 2.0
 - Language/runtime: PHP 8.2+, `declare(strict_types=1)` in every file
-- Owner: MaximillianGroup (Max Barrett) — maximilliangroup@gmail.com
+- Owner: MaximillianGroup (Max Barrett) — see YAML frontmatter `owner`
 
 ### REQ-001 — Standalone product boundary
 
@@ -177,8 +177,12 @@ have any such consumer per `REQ-001`.
 Runtime: PHP 8.2+, WordPress (any version providing the hooks listed
 above). Optional PHP extensions: `redis` (PhpRedis) or `predis/predis`,
 `memcached`, `memcache`. No required Composer packages beyond PHP itself
-(`composer.json` `require.php: ^8.2`) — StarCache pulls no private
-Composer packages, so no Composer-auth CI step is needed.
+(`composer.json` `require.php: ^8.2`) — StarCache's own dependency tree
+has no private packages. `standards.yml` and `governance.yml` still pass
+`COMPOSER_RESOLVER_PRIVATE_KEY` through to the org's reusable
+`php-enforcement.yml` / `fetch-specs.yml` workflows, per the platform
+template — that secret is for those reusable workflows' own use, not
+because this repo's `composer install` needs private-package auth.
 
 Dev-only: `phpunit/phpunit ^10.0`, `squizlabs/php_codesniffer ^3.9`,
 `phpstan/phpstan ^2.0` — all public packages.
