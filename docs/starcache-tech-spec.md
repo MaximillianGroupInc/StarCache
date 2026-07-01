@@ -1,9 +1,9 @@
 ---
 product_id: starcache
 name: "StarCache"
-status: draft
+status: review
 version: "2.1.1"
-owner: "@MaximillianGroupInc"
+owner: "@MaximillianGroup"
 last_reviewed: "2026-07-01"
 spec_id_prefix: "STARCACHE"
 ---
@@ -249,10 +249,10 @@ this point and should be updated separately to mark the item complete.
 - `OQ-001` — no governance snapshot populated yet for this repo.
 - `OQ-002` — content-state boundary with future SPARXSTAR consumers is
   unresolved (no consumer exists today).
-- `OQ-004` — Varnish PURGE authentication: if Varnish requires a secret
+- `OQ-003` — Varnish PURGE authentication: if Varnish requires a secret
   for PURGE requests, where does that secret live? Not resolved in
   `wp-config.php` or the options table today.
-- `OQ-005` — per-route TTL configuration is not supported; TTL is global
+- `OQ-004` — per-route TTL configuration is not supported; TTL is global
   per cache type.
 - Removal of `StarQueryCache` as a system, and extraction of
   `StarAssetMinifier` to a companion plugin, are both tracked as
@@ -261,6 +261,7 @@ this point and should be updated separately to mark the item complete.
 
 ## Changelog
 
-- 2026-07-01 — Initial draft spec bootstrapped from `TECHNICAL-SPECIFICATION.md`
-  and the current codebase (v2.1.1), submitted to the spec registry as
-  `status: draft`.
+- 2026-07-01 — Initial spec bootstrapped from `TECHNICAL-SPECIFICATION.md`
+  and the current codebase (v2.1.1). Status set to `review`; proposed to
+  the spec registry for canonical promotion. Fixed `owner` handle and
+  OQ numbering gap (`OQ-003`/`OQ-004` restored).
