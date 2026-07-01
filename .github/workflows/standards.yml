@@ -1,0 +1,18 @@
+name: Platform Standards
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # This repo is a PHP-only WordPress mu-plugin: no package.json, no
+  # repo-owned CSS/media assets (StarAssetMinifier processes OTHER
+  # plugins' enqueued assets at runtime — it does not ship its own).
+  php:
+    uses: Starisian-Technologies/sparxstar-code-conformance/.github/workflows/php-enforcement.yml@v1
+    with:
+      repo_type: wp-plugin
+      enforcement_mode: advisory
+    secrets:
+      COMPOSER_RESOLVER_PRIVATE_KEY: ${{ secrets.COMPOSER_RESOLVER_PRIVATE_KEY }}

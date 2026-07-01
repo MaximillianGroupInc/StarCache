@@ -1,0 +1,118 @@
+name: Governance
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # ─── STEP 1: PULL SPEC ────────────────────────────────────
+  # StarCache has no MANIFEST.json and consumes no other product's spec
+  # or contracts (see ROLE.md — standalone product, no SPARXSTAR deps).
+  # This pulls the registry's current copy of StarCache's OWN spec so CI
+  # can be aware of the canonical/ratified state relative to the local
+  # draft in docs/starcache-tech-spec.md.
+  pull-spec:
+    uses: Starisian-Technologies/sparxstar-product-specification-registry/.github/workflows/fetch-specs.yml@v1.0.0
+    with:
+      specs: "starcache"
+      agent-ref: main
+      contract-ref: "v1.0.0"
+    secrets:
+      COMPOSER_RESOLVER_PRIVATE_KEY: ${{ secrets.COMPOSER_RESOLVER_PRIVATE_KEY }}
+
+  # ─── STEP 2: YOUR CI ──────────────────────────────────────
+  # PSR-12 lint (composer lint) and PHPStan (composer analyze) are already
+  # enforced by standards.yml's `php` job (sparxstar-code-conformance
+  # php-enforcement.yml) — not duplicated here. This job only runs the
+  # test suite.
+  test:
+    needs: [pull-spec]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer test
+
+  # ─── STEP 3A: PROPOSE SPEC UPDATE ─────────────────────────
+  # On merge to main, if docs/starcache-tech-spec.md changed, opens a PR
+  # on the spec registry with the update. The registry reviews and
+  # approves — StarCache proposes, the registry owns.
+  propose-spec:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: source
+      - name: Check if spec changed
+        id: check
+        run: |
+          cd source
+          # Diff against the pre-push SHA, not HEAD~1 — a push can carry more
+          # than one commit (fast-forward merge, direct multi-commit push),
+          # and HEAD~1 only ever looks at the single most recent commit.
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            BEFORE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+          fi
+          if [ -n "$BEFORE" ]; then
+            CHANGED=$(git diff "$BEFORE" HEAD --name-only -- docs/*-tech-spec.md || echo "")
+          else
+            CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- docs/*-tech-spec.md || echo "")
+          fi
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Generate token
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/create-github-app-token@v1
+        id: token
+        with:
+          app-id: ${{ vars.CONTRACT_SYNC_CLIENT_ID }}
+          private-key: ${{ secrets.CONTRACT_SYNC_PRIVATE_KEY }}
+          owner: Starisian-Technologies
+      - name: Propose to registry
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SPEC_KEY: "starcache"
+        run: |
+          REGISTRY="Starisian-Technologies/sparxstar-product-specification-registry"
+          BRANCH="propose/${SPEC_KEY}-$(date +%Y%m%d-%H%M%S)"
+          TARGET="specs/${SPEC_KEY}/${SPEC_KEY}-tech-spec.md"
+          git clone --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REGISTRY}.git" \
+            registry
+          cd registry
+          git checkout -b "$BRANCH"
+          mkdir -p "$(dirname "$TARGET")"
+          cp "../source/docs/${SPEC_KEY}-tech-spec.md" "$TARGET"
+          git config user.name "sparxstar-contract-sync[bot]"
+          git config user.email "contract-sync@starisian.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No spec changes to propose."
+            exit 0
+          fi
+          git commit -m "propose: ${SPEC_KEY} spec from ${GITHUB_REPOSITORY}@${GITHUB_SHA:0:7}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --repo "$REGISTRY" \
+            --base main \
+            --head "$BRANCH" \
+            --title "propose: ${SPEC_KEY} spec update" \
+            --body "Proposed by ${GITHUB_REPOSITORY}. Review before merging."
+
+  # ─── STEP 3B: SYNC CONTRACTS ──────────────────────────────
+  # Not applicable — StarCache publishes no interfaces to
+  # sparxstar-contracts-registry (see ROLE.md, "Contracts produced: None").
+  # Add this job back if StarCache ever grows a docs/contracts/ directory.

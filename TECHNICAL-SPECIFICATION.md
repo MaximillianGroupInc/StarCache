@@ -562,20 +562,26 @@ Hard rules
 
 * * * * *
 
-Hardening checklist (current state --- v2.1.0)
+Hardening checklist (current state --- v2.1.1)
 --------------------------------------------
 
 These items are from the architectural review. Each must be resolved before v3.0 release.
 
+**This table was stale as of the v2.1.1 governance review (2026-07-01) ---
+several rows below were still marked "Required" after the code had
+already implemented them.** Verified against the current code
+(`StarCacheContext.php`, `StarCacheKey.php`, `StarCacheAdapter.php`,
+`starcache.php`) and updated accordingly.
+
 | Item | Status | Priority |
 | --- | --- | --- |
-| Remove StarQueryCache system → Cache::remember() | Required | 1 |
-| Lock context dimensions --- max count + value length | Required | 2 |
-| Adapter discipline --- remove key/TTL/context logic | Required | 3 |
-| KeyBuilder responsibility separation | Required | 4 |
+| Remove StarQueryCache system → Cache::remember() | Done --- hooks not registered in starcache.php; only the standalone `cachedWpdbQuery()` helper remains, marked deprecated | 1 |
+| Lock context dimensions --- max count + value length | Done --- `StarCacheContext::MAX_DIMENSIONS` (7), `MAX_DIMENSION_VALUE_LENGTH` (64), charset sanitization, and the `register()` model are implemented and tested | 2 |
+| Adapter discipline --- remove key/TTL/context logic | Done --- `StarCacheAdapter` has no reference to `StarCacheKey` or `StarCacheContext`; it only hashes group names for its own storage namespacing | 3 |
+| KeyBuilder responsibility separation | Done --- `StarCacheKey::build()` delegates to named segment methods as specified | 4 |
 | PageCache / ResponseController hard boundary | Required | 5 |
 | Context lock timing audit --- nothing after plugins_loaded | Required | 6 |
-| Reference length guard in StarCacheKey | Required | 7 |
+| Reference length guard in StarCacheKey | Done --- `MAX_REFERENCE_LENGTH = 250`, enforced with an exception, and tested | 7 |
 | Extract StarAssetMinifier to companion plugin | Required | 8 |
 
 * * * * *
