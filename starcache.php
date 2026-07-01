@@ -78,6 +78,7 @@ namespace StarCache {
         'StarPageCache',
         'StarQueryCache',    // Deprecated — removal target for v3.0
         'StarAssetMinifier',
+        'StarPluginLifecycle',
     ];
 
     foreach ($_starCacheClasses as $_starCacheClass) {
@@ -209,9 +210,12 @@ namespace StarCache {
         \WP_CLI::add_command('starcache status', static function (): void {
             $backend = StarCacheAdapter::getBackend();
             $opcache = StarCacheAdapter::isOpcacheEnabled() ? 'enabled' : 'disabled';
+            $context = function_exists('wp_json_encode')
+                ? wp_json_encode(StarCacheContext::all())
+                : json_encode(StarCacheContext::all());
             \WP_CLI::line('Backend : ' . $backend);
             \WP_CLI::line('OPcache : ' . $opcache);
-            \WP_CLI::line('Context : ' . json_encode(StarCacheContext::all()));
+            \WP_CLI::line('Context : ' . ($context !== false ? $context : '{}'));
         });
     }
 }
@@ -295,7 +299,7 @@ namespace {
 
     if (function_exists('register_deactivation_hook')) {
         register_deactivation_hook(__FILE__, static function (): void {
-            \StarCache\StarAssetMinifier::clearScheduledBuilds();
+            \StarCache\StarPluginLifecycle::deactivate();
         });
     }
 }

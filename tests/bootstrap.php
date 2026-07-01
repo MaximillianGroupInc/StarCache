@@ -307,6 +307,27 @@ if (!function_exists('wp_schedule_single_event')) {
     }
 }
 
+if (!function_exists('wp_clear_scheduled_hook')) {
+    function wp_clear_scheduled_hook(string $hook): int
+    {
+        $remaining = [];
+        $cleared   = 0;
+
+        foreach ($GLOBALS['_starcache_scheduled_events'] ?? [] as $event) {
+            if (($event['hook'] ?? '') === $hook) {
+                $cleared++;
+                continue;
+            }
+
+            $remaining[] = $event;
+        }
+
+        $GLOBALS['_starcache_scheduled_events'] = $remaining;
+
+        return $cleared;
+    }
+}
+
 if (!function_exists('wp_next_scheduled')) {
     function wp_next_scheduled(string $hook, array $args = []): int|false
     {
@@ -316,6 +337,44 @@ if (!function_exists('wp_next_scheduled')) {
             }
         }
         return false;
+    }
+}
+
+if (!function_exists('wp_json_encode')) {
+    function wp_json_encode(mixed $value, int $flags = 0, int $depth = 512): string|false
+    {
+        return json_encode($value, $flags, $depth);
+    }
+}
+
+if (!function_exists('is_multisite')) {
+    function is_multisite(): bool
+    {
+        return false;
+    }
+}
+
+if (!function_exists('get_sites')) {
+    /** @return array<int, int> */
+    function get_sites(array $args = []): array
+    {
+        return [];
+    }
+}
+
+if (!function_exists('switch_to_blog')) {
+    function switch_to_blog(int $new_blog_id, bool $deprecated = true): bool
+    {
+        $GLOBALS['_starcache_test_blog_id'] = $new_blog_id;
+        return true;
+    }
+}
+
+if (!function_exists('restore_current_blog')) {
+    function restore_current_blog(): bool
+    {
+        $GLOBALS['_starcache_test_blog_id'] = 1;
+        return true;
     }
 }
 

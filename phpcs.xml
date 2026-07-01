@@ -45,6 +45,10 @@
     <rule ref="Squiz.Classes.ValidClassName.NotCamelCaps">
         <exclude-pattern>tests/bootstrap.php</exclude-pattern>
     </rule>
+    <rule ref="PSR1.Classes.ClassDeclaration.MultipleClasses">
+        <exclude-pattern>tests/bootstrap.php</exclude-pattern>
+        <exclude-pattern>tests/UnitTests.php</exclude-pattern>
+    </rule>
 
     <!-- Allow slightly longer lines — WordPress hook calls can be verbose -->
     <rule ref="Generic.Files.LineLength">

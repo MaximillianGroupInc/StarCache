@@ -217,8 +217,8 @@ composer install
 ## Lifecycle behavior
 
 - **Activation (regular plugin):** no schema or data mutation.
-- **Deactivation (regular plugin):** clears pending `starcache_build_asset` cron events only.
-- **Uninstall:** keeps user data by default and clears only pending StarCache cron events.
+- **Deactivation (regular plugin):** clears pending `starcache_build_asset` cron events and generated asset-cache files for the current site, or for every site during network deactivation.
+- **Uninstall:** keeps user data by default and removes only StarCache-generated asset-cache files plus pending StarCache cron events, including multisite network cleanup when supported by WordPress.
 
 ---
 

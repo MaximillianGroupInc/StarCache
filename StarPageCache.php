@@ -391,13 +391,17 @@ class StarPageCache
         $path        = ($parsed['path'] ?? '/');
         $requestHost = 'localhost';
         if (array_key_exists('host', $parsed) && is_string($parsed['host']) && $parsed['host'] !== '') {
-            $requestHost = $parsed['host'];
-        } elseif (array_key_exists('HTTP_HOST', $_SERVER) && is_string($_SERVER['HTTP_HOST']) && $_SERVER['HTTP_HOST'] !== '') {
-            $requestHost = $_SERVER['HTTP_HOST'];
+            $requestHost = self::sanitizeHost($parsed['host']);
+        } else {
+            $requestHost = self::currentRequestHost();
         }
 
         if (!empty($parsed['query'])) {
             $path .= '?' . $parsed['query'];
+        }
+
+        if ($requestHost === '') {
+            $requestHost = 'localhost';
         }
 
         $args = [
@@ -459,14 +463,9 @@ class StarPageCache
     private static function currentUrl(): string
     {
         $scheme = (function_exists('is_ssl') && is_ssl()) ? 'https' : 'http';
-        $host = 'localhost';
-        if (array_key_exists('HTTP_HOST', $_SERVER) && is_string($_SERVER['HTTP_HOST']) && $_SERVER['HTTP_HOST'] !== '') {
-            $host = $_SERVER['HTTP_HOST'];
-        }
-        $uri = '/';
-        if (array_key_exists('REQUEST_URI', $_SERVER) && is_string($_SERVER['REQUEST_URI']) && $_SERVER['REQUEST_URI'] !== '') {
-            $uri = $_SERVER['REQUEST_URI'];
-        }
+        $host   = self::currentRequestHost();
+        $uri    = self::currentRequestUri();
+
         return $scheme . '://' . $host . $uri;
     }
 
@@ -509,6 +508,63 @@ class StarPageCache
     private static function isVarnishEnabled(): bool
     {
         return (bool) apply_filters('starcache_varnish_enabled', defined('VARNISH_HOST'));
+    }
+
+    /**
+     * Return a safe host value for cache keys and PURGE headers.
+     */
+    private static function currentRequestHost(): string
+    {
+        if (array_key_exists('HTTP_HOST', $_SERVER) && is_string($_SERVER['HTTP_HOST'])) {
+            $host = self::sanitizeHost($_SERVER['HTTP_HOST']);
+            if ($host !== '') {
+                return $host;
+            }
+        }
+
+        if (function_exists('home_url')) {
+            $homeHost = wp_parse_url(home_url('/'), PHP_URL_HOST);
+            if (is_string($homeHost)) {
+                $homeHost = self::sanitizeHost($homeHost);
+                if ($homeHost !== '') {
+                    return $homeHost;
+                }
+            }
+        }
+
+        return 'localhost';
+    }
+
+    /**
+     * Return a safe request URI for cache keys.
+     */
+    private static function currentRequestUri(): string
+    {
+        if (array_key_exists('REQUEST_URI', $_SERVER) && is_string($_SERVER['REQUEST_URI'])) {
+            $uri = preg_replace('/[\x00-\x1F\x7F]/', '', $_SERVER['REQUEST_URI']) ?? '';
+            if ($uri !== '' && str_starts_with($uri, '/')) {
+                return $uri;
+            }
+        }
+
+        return '/';
+    }
+
+    /**
+     * Normalize a host/header value to a safe subset.
+     */
+    private static function sanitizeHost(string $host): string
+    {
+        $host = strtolower(trim(preg_replace('/[\x00-\x1F\x7F]/', '', $host) ?? ''));
+        if ($host === '') {
+            return '';
+        }
+
+        if (!preg_match('/\A[a-z0-9.\-:\[\]]+\z/', $host)) {
+            return '';
+        }
+
+        return $host;
     }
 
     /**

@@ -64,9 +64,15 @@ if (!class_exists('WP_CLI')) {
 }
 
 if (!class_exists('WP_Dependencies')) {
+    class WP_Dependency_Stub
+    {
+        public string $src = '';
+        public int|string|null $ver = null;
+    }
+
     class WP_Dependencies
     {
-        /** @var array<string,object> */
+        /** @var array<string,WP_Dependency_Stub> */
         public array $registered = [];
     }
 }
@@ -262,6 +268,12 @@ if (!function_exists('wp_generate_password')) {
 if (!function_exists('wp_mkdir_p')) {
     function wp_mkdir_p(string $target): bool { return true; }
 }
+if (!function_exists('wp_json_encode')) {
+    function wp_json_encode(mixed $value, int $flags = 0, int $depth = 512): string|false
+    {
+        return json_encode($value, $flags, $depth);
+    }
+}
 if (!function_exists('wp_parse_url')) {
     /** @return array<string,string|int>|string|int|null|false */
     function wp_parse_url(string $url, int $component = -1): array|string|int|null|false
@@ -275,6 +287,28 @@ if (!function_exists('wp_remote_request')) {
     {
         return [];
     }
+}
+if (!function_exists('wp_schedule_single_event')) {
+    function wp_schedule_single_event(int $timestamp, string $hook, array $args = []): bool { return true; }
+}
+if (!function_exists('wp_next_scheduled')) {
+    function wp_next_scheduled(string $hook, array $args = []): int|false { return false; }
+}
+if (!function_exists('wp_clear_scheduled_hook')) {
+    function wp_clear_scheduled_hook(string $hook): int { return 0; }
+}
+if (!function_exists('is_multisite')) {
+    function is_multisite(): bool { return false; }
+}
+if (!function_exists('get_sites')) {
+    /** @return array<int,int> */
+    function get_sites(array $args = []): array { return []; }
+}
+if (!function_exists('switch_to_blog')) {
+    function switch_to_blog(int $new_blog_id, bool $deprecated = true): true { return true; }
+}
+if (!function_exists('restore_current_blog')) {
+    function restore_current_blog(): true { return true; }
 }
 if (!function_exists('is_wp_error')) {
     function is_wp_error(mixed $thing): bool { return $thing instanceof WP_Error; }

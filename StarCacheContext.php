@@ -324,7 +324,9 @@ class StarCacheContext
         ksort($keyDimensions, SORT_STRING); // Deterministic order
         // JSON provides a more portable, cross-version-stable representation than
         // serialize(); this intentionally changes context hashes (cold-cache once).
-        $json = json_encode($keyDimensions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $json = function_exists('wp_json_encode')
+            ? wp_json_encode($keyDimensions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            : json_encode($keyDimensions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
             self::logMessage('Failed to encode context dimensions as JSON, using empty object fallback: ' . json_last_error_msg());
             $json = '{}';
