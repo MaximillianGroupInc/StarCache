@@ -147,7 +147,8 @@ class StarPageCache
             return $html;
         }
 
-        $ttl     = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
+        $filteredTtl = apply_filters('starcache_page_ttl', self::TTL_PAGE);
+        $ttl         = is_numeric($filteredTtl) ? (int) $filteredTtl : self::TTL_PAGE;
         $payload = ['html' => $html, 'headers' => $headers, 'time' => time()];
 
         StarCacheAdapter::set(self::$currentPageKey, $payload, $ttl, self::GROUP_PAGE);
@@ -167,13 +168,18 @@ class StarPageCache
     /**
      * Serve a previously cached page, replaying its safe headers.
      *
-     * @param array $cached  Payload stored by capturePageOutput().
+     * @param array<mixed,mixed> $cached  Payload stored by capturePageOutput().
      */
     private static function serveCachedPage(array $cached): void
     {
         if (!headers_sent()) {
-            foreach ($cached['headers'] ?? [] as $header) {
-                header($header);
+            $headers = $cached['headers'] ?? [];
+            if (is_array($headers)) {
+                foreach ($headers as $header) {
+                    if (is_string($header)) {
+                        header($header);
+                    }
+                }
             }
             // Response controller applies Cache-Control; tag header goes here
             StarResponseController::apply();
@@ -182,7 +188,8 @@ class StarPageCache
             // Override X-Cache to indicate a cache HIT
             header('X-Cache: HIT');
         }
-        echo $cached['html'] ?? '';
+        $html = $cached['html'] ?? '';
+        echo is_string($html) ? $html : '';
     }
 
     // -------------------------------------------------------------------------
@@ -209,7 +216,7 @@ class StarPageCache
         $key    = self::buildFragmentKey($name);
         $cached = StarCacheAdapter::get($key, self::GROUP_FRAG);
 
-        if ($cached !== false) {
+        if (is_string($cached)) {
             echo $cached;
             return true;
         }
@@ -414,7 +421,7 @@ class StarPageCache
         $purgeUrl = 'http://' . $host . ':' . $port . $path;
         $response = wp_remote_request($purgeUrl, $args);
 
-        if (is_wp_error($response)) {
+        if ($response instanceof \WP_Error) {
             self::logMessage('Varnish PURGE failed for ' . $url . ': ' . $response->get_error_message());
         }
     }

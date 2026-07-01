@@ -143,17 +143,13 @@ class StarCacheContext
         $normalizedAllowedValues = [];
         foreach ($allowedValues as $allowedValue) {
             $allowedValue = strtolower($allowedValue);
-            $allowedValue = preg_replace('/[^a-z0-9_:-]/', '', $allowedValue);
+            $allowedValue = preg_replace('/[^a-z0-9_:-]/', '', $allowedValue) ?? '';
 
             if ($allowedValue === '') {
                 continue;
             }
 
             $allowedValue = substr($allowedValue, 0, self::MAX_DIMENSION_VALUE_LENGTH);
-            if ($allowedValue === '') {
-                continue;
-            }
-
             $normalizedAllowedValues[] = $allowedValue;
         }
 
@@ -206,7 +202,10 @@ class StarCacheContext
 
         // Allow themes / plugins to inject additional registered dimensions via filter.
         // The filter output is passed through the constraint pipeline before use.
-        $filtered = (array) apply_filters('starcache_context_dimensions', self::$dimensions);
+        $filtered = apply_filters('starcache_context_dimensions', self::$dimensions);
+        if (!is_array($filtered)) {
+            $filtered = self::$dimensions;
+        }
 
         // Enforce constraints: only registered dimensions, within value bounds.
         self::$dimensions = self::applyConstraints($filtered);
@@ -328,7 +327,10 @@ class StarCacheContext
             ? wp_json_encode($keyDimensions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
             : json_encode($keyDimensions, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
-            self::logMessage('Failed to encode context dimensions as JSON, using empty object fallback: ' . json_last_error_msg());
+            self::logMessage(
+                'Failed to encode context dimensions as JSON, using empty object fallback: '
+                . json_last_error_msg()
+            );
             $json = '{}';
         }
         return hash('sha256', $json);
@@ -387,7 +389,8 @@ class StarCacheContext
      */
     private static function resolveExperiment(): string
     {
-        $cookieName = (string) apply_filters('starcache_experiment_cookie', 'starcache_experiment');
+        $filteredCookieName = apply_filters('starcache_experiment_cookie', 'starcache_experiment');
+        $cookieName = is_string($filteredCookieName) ? $filteredCookieName : 'starcache_experiment';
         $raw = '';
         if (array_key_exists($cookieName, $_COOKIE) && is_string($_COOKIE[$cookieName])) {
             $raw = $_COOKIE[$cookieName];
@@ -417,21 +420,25 @@ class StarCacheContext
 
         foreach ($raw as $name => $value) {
             // 1. Reject unregistered dimensions injected via filter.
-            if (!array_key_exists((string) $name, self::$registered)) {
+            $dimensionName = (string) $name;
+            if (!array_key_exists($dimensionName, self::$registered)) {
                 continue;
             }
 
             // 2. Sanitize value.
-            $sanitized = self::sanitizeValue((string) $value, (string) $name);
+            if (!is_scalar($value) && $value !== null) {
+                continue;
+            }
+            $sanitized = self::sanitizeValue((string) $value, $dimensionName);
 
             // 3. Enforce allowed-value list if defined.
-            $allowedValues = self::$registered[(string) $name];
+            $allowedValues = self::$registered[$dimensionName];
             if (!empty($allowedValues) && !in_array($sanitized, $allowedValues, true)) {
                 // Value not in allow-list: use the first allowed value as the default.
                 $sanitized = $allowedValues[0];
             }
 
-            $clean[(string) $name] = $sanitized;
+            $clean[$dimensionName] = $sanitized;
         }
 
         // 4. Cap dimension count.

@@ -152,7 +152,8 @@ class StarCacheAdapter
      * Retrieve a value from the active cache backend.
      *
      * @param string $key
-     * @param string $group  Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
+     * @param string $group  Used for namespacing across all cache backends;
+     *                       maps to a WP cache group for the WP object cache backend.
      * @return mixed
      */
     public static function get(string $key, string $group = ''): mixed
@@ -165,7 +166,8 @@ class StarCacheAdapter
      * Retrieve a value plus an explicit hit/miss indicator.
      *
      * @param  string $key
-     * @param  string $group Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
+     * @param  string $group Used for namespacing across all cache backends;
+     *                       maps to a WP cache group for the WP object cache backend.
      * @return array{found: bool, value: mixed}
      */
     public static function getWithFound(string $key, string $group = ''): array
@@ -173,8 +175,13 @@ class StarCacheAdapter
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
+                    $connection = self::redisConnection();
+                    if ($connection === null) {
+                        return ['found' => false, 'value' => false];
+                    }
+
                     $storageKey = self::buildStorageKey($key, $group);
-                    $value      = self::$connection->get($storageKey);
+                    $value      = $connection->get($storageKey);
                     if ($value === false || $value === null) {
                         return ['found' => false, 'value' => false];
                     }
@@ -188,9 +195,14 @@ class StarCacheAdapter
                     return ['found' => true, 'value' => $unserialized];
 
                 case self::BACKEND_MEMCACHED:
+                    $connection = self::memcachedConnection();
+                    if ($connection === null) {
+                        return ['found' => false, 'value' => false];
+                    }
+
                     $storageKey = self::buildStorageKey($key, $group);
-                    $value      = self::$connection->get($storageKey);
-                    if ($value === false && self::$connection->getResultCode() === \Memcached::RES_NOTFOUND) {
+                    $value      = $connection->get($storageKey);
+                    if ($value === false && $connection->getResultCode() === \Memcached::RES_NOTFOUND) {
                         return ['found' => false, 'value' => false];
                     }
                     // Value was stored as a serialized string; unserialize to recover the original.
@@ -204,12 +216,18 @@ class StarCacheAdapter
                     return ['found' => true, 'value' => $unserialized];
 
                 case self::BACKEND_MEMCACHE:
+                    $connection = self::memcacheConnection();
+                    if ($connection === null) {
+                        return ['found' => false, 'value' => false];
+                    }
+
                     // Memcache::get() returns false on miss AND when the stored value is literally
                     // false. Values are stored serialized so a retrieved string is always a hit.
                     $storageKey = self::buildStorageKey($key, $group);
-                    $value      = self::$connection->get($storageKey); // @phpstan-ignore-line
+                    $value      = $connection->get($storageKey);
                     if ($value === false) {
-                        return ['found' => false, 'value' => false]; // cache miss (serialized values are strings, never false)
+                        // Cache miss; serialized values are stored as strings, never literal false.
+                        return ['found' => false, 'value' => false];
                     }
                     if (!is_string($value)) {
                         return ['found' => false, 'value' => false];
@@ -223,7 +241,7 @@ class StarCacheAdapter
                 default:
                     $found = false;
                     $value = wp_cache_get($key, $group, false, $found);
-                    return ['found' => $found, 'value' => $found ? $value : false];
+                    return ['found' => (bool) $found, 'value' => $found ? $value : false];
             }
         } catch (Exception $e) {
             self::logError('StarCacheAdapter::getWithFound', $e);
@@ -237,7 +255,8 @@ class StarCacheAdapter
      * @param string $key
      * @param mixed  $value
      * @param int    $expiration  Seconds (0 = no expiry for WP/Redis).
-     * @param string $group       Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
+     * @param string $group       Used for namespacing across all cache backends;
+     *                            maps to a WP cache group for the WP object cache backend.
      * @return bool
      */
     public static function set(string $key, mixed $value, int $expiration = 3600, string $group = ''): bool
@@ -245,37 +264,54 @@ class StarCacheAdapter
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
+                    $connection = self::redisConnection();
+                    if ($connection === null) {
+                        return false;
+                    }
+
                     $storageKey = self::buildStorageKey($key, $group);
                     $serialised = serialize($value);
                     if ($expiration > 0) {
                         if (self::isPredisConnection()) {
-                            return self::isSuccessfulSetResult(self::$connection->setex($storageKey, $expiration, $serialised));
+                            return self::isSuccessfulSetResult(
+                                $connection->setex($storageKey, $expiration, $serialised)
+                            );
                         }
-                        return (bool) self::$connection->setEx($storageKey, $expiration, $serialised);
+                        return (bool) $connection->setEx($storageKey, $expiration, $serialised);
                     }
                     if (self::isPredisConnection()) {
-                        return self::isSuccessfulSetResult(self::$connection->set($storageKey, $serialised));
+                        return self::isSuccessfulSetResult($connection->set($storageKey, $serialised));
                     }
-                    return (bool) self::$connection->set($storageKey, $serialised);
+                    return (bool) $connection->set($storageKey, $serialised);
 
                 case self::BACKEND_MEMCACHED:
+                    $connection = self::memcachedConnection();
+                    if ($connection === null) {
+                        return false;
+                    }
+
                     // Serialize to mirror the Redis strategy and allow any PHP value
                     // (including boolean false) to be stored and retrieved unambiguously.
-                    return self::$connection->set(
+                    return $connection->set(
                         self::buildStorageKey($key, $group),
                         serialize($value),
                         $expiration
                     );
 
                 case self::BACKEND_MEMCACHE:
+                    $connection = self::memcacheConnection();
+                    if ($connection === null) {
+                        return false;
+                    }
+
                     // Memcache::set($key, $value, $flags, $expire) — 0 = no compression.
                     // Serialize for the same reason as Memcached above.
-                    return self::$connection->set(
+                    return $connection->set(
                         self::buildStorageKey($key, $group),
                         serialize($value),
                         0,
                         $expiration
-                    ); // @phpstan-ignore-line
+                    );
 
                 default:
                     return wp_cache_set($key, $value, $group, $expiration);
@@ -290,20 +326,28 @@ class StarCacheAdapter
      * Delete a cached value.
      *
      * @param string $key
-     * @param string $group  Used for namespacing across all cache backends; maps to a WP cache group for the WP object cache backend.
+     * @param string $group  Used for namespacing across all cache backends;
+     *                       maps to a WP cache group for the WP object cache backend.
      */
     public static function delete(string $key, string $group = ''): bool
     {
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
-                    return (bool) self::$connection->del(self::buildStorageKey($key, $group));
+                    $connection = self::redisConnection();
+                    if ($connection === null) {
+                        return false;
+                    }
+
+                    return (bool) $connection->del(self::buildStorageKey($key, $group));
 
                 case self::BACKEND_MEMCACHED:
-                    return self::$connection->delete(self::buildStorageKey($key, $group));
+                    $connection = self::memcachedConnection();
+                    return $connection !== null && $connection->delete(self::buildStorageKey($key, $group));
 
                 case self::BACKEND_MEMCACHE:
-                    return self::$connection->delete(self::buildStorageKey($key, $group));
+                    $connection = self::memcacheConnection();
+                    return $connection !== null && $connection->delete(self::buildStorageKey($key, $group));
 
                 default:
                     return wp_cache_delete($key, $group);
@@ -321,7 +365,10 @@ class StarCacheAdapter
     {
         if (!defined('STARCACHE_ALLOW_DANGEROUS_FLUSH') || STARCACHE_ALLOW_DANGEROUS_FLUSH !== true) {
             self::logMessage(
-                'StarCacheAdapter::flush blocked. This is intended for development/testing only; use version bumps in production. Define STARCACHE_ALLOW_DANGEROUS_FLUSH=true in wp-config.php to enable.'
+                'StarCacheAdapter::flush blocked. This is intended for '
+                . 'development/testing only; use version bumps in production. '
+                . 'Define STARCACHE_ALLOW_DANGEROUS_FLUSH=true in wp-config.php '
+                . 'to enable.'
             );
             return false;
         }
@@ -329,16 +376,23 @@ class StarCacheAdapter
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
-                    if (self::isPredisConnection()) {
-                        return self::isSuccessfulSetResult(self::$connection->flushdb());
+                    $connection = self::redisConnection();
+                    if ($connection === null) {
+                        return false;
                     }
-                    return (bool) self::$connection->flushDB();
+
+                    if (self::isPredisConnection()) {
+                        return self::isSuccessfulSetResult($connection->flushdb());
+                    }
+                    return (bool) $connection->flushDB();
 
                 case self::BACKEND_MEMCACHED:
-                    return self::$connection->flush();
+                    $connection = self::memcachedConnection();
+                    return $connection !== null && $connection->flush();
 
                 case self::BACKEND_MEMCACHE:
-                    return self::$connection->flush();
+                    $connection = self::memcacheConnection();
+                    return $connection !== null && $connection->flush();
 
                 default:
                     return wp_cache_flush();
@@ -362,26 +416,33 @@ class StarCacheAdapter
 
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
+                    $connection = self::redisConnection();
+                    if ($connection === null) {
+                        return false;
+                    }
+
                     if (self::isPredisConnection()) {
                         $options = ['NX'];
                         if ($expiration > 0) {
                             $options['EX'] = $expiration;
                         }
-                        return self::isSuccessfulSetResult(self::$connection->set($storageKey, $serialised, $options));
+                        return self::isSuccessfulSetResult($connection->set($storageKey, $serialised, $options));
                     }
 
                     $options = ['NX'];
                     if ($expiration > 0) {
                         $options['EX'] = $expiration;
                     }
-                    $result = self::$connection->set($storageKey, $serialised, $options);
+                    $result = $connection->set($storageKey, $serialised, $options);
                     return self::isSuccessfulSetResult($result);
 
                 case self::BACKEND_MEMCACHED:
-                    return self::$connection->add($storageKey, $serialised, $expiration);
+                    $connection = self::memcachedConnection();
+                    return $connection !== null && $connection->add($storageKey, $serialised, $expiration);
 
                 case self::BACKEND_MEMCACHE:
-                    return self::$connection->add($storageKey, $serialised, 0, $expiration); // @phpstan-ignore-line
+                    $connection = self::memcacheConnection();
+                    return $connection !== null && $connection->add($storageKey, $serialised, 0, $expiration);
 
                 default:
                     if (function_exists('wp_cache_add')) {
@@ -410,17 +471,28 @@ class StarCacheAdapter
         try {
             switch (self::$detectedBackend) {
                 case self::BACKEND_REDIS:
+                    $connection = self::redisConnection();
+                    if ($connection === null) {
+                        break;
+                    }
+
                     if (self::isPredisConnection()) {
-                        if (method_exists(self::$connection, 'disconnect')) {
-                            self::$connection->disconnect();
+                        if (method_exists($connection, 'disconnect')) {
+                            $connection->disconnect();
                         }
                     } else {
-                        self::$connection->close();
+                        $connection->close();
                     }
                     break;
                 case self::BACKEND_MEMCACHED:
+                    // Memcached connections are managed by the extension and do not
+                    // expose a close() method.
+                    break;
                 case self::BACKEND_MEMCACHE:
-                    self::$connection->close();
+                    $connection = self::memcacheConnection();
+                    if ($connection !== null) {
+                        $connection->close();
+                    }
                     break;
             }
         } catch (Exception $e) {
@@ -511,9 +583,20 @@ class StarCacheAdapter
 
         if (defined('MEMCACHED_SERVERS') && is_array(MEMCACHED_SERVERS)) {
             foreach (MEMCACHED_SERVERS as $server) {
+                if (!is_array($server)) {
+                    continue;
+                }
+
+                $serverHost = array_key_exists('host', $server) && is_string($server['host'])
+                    ? $server['host']
+                    : '127.0.0.1';
+                $serverPort = array_key_exists('port', $server) && is_numeric($server['port'])
+                    ? (int) $server['port']
+                    : 11211;
+
                 $memcached->addServer(
-                    $server['host'] ?? '127.0.0.1',
-                    (int) ($server['port'] ?? 11211)
+                    $serverHost,
+                    $serverPort
                 );
             }
         } else {
@@ -592,6 +675,29 @@ class StarCacheAdapter
     private static function isPredisConnection(): bool
     {
         return class_exists('\Predis\Client') && self::$connection instanceof \Predis\Client;
+    }
+
+    private static function redisConnection(): \Redis|\Predis\Client|null
+    {
+        if (self::$connection instanceof \Redis) {
+            return self::$connection;
+        }
+
+        if (class_exists('\Predis\Client') && self::$connection instanceof \Predis\Client) {
+            return self::$connection;
+        }
+
+        return null;
+    }
+
+    private static function memcachedConnection(): ?\Memcached
+    {
+        return self::$connection instanceof \Memcached ? self::$connection : null;
+    }
+
+    private static function memcacheConnection(): ?\Memcache
+    {
+        return self::$connection instanceof \Memcache ? self::$connection : null;
     }
 
     private static function detectWpObjectCacheMode(): string

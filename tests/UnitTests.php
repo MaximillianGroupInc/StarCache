@@ -16,27 +16,29 @@ use StarCache\StarQueryCache;
 use StarCache\StarCacheAdapter;
 use StarCache\StarTransientCache;
 
-class FakeRedisConnection
+class FakeRedisConnection extends \Redis
 {
     /** @var array<string,string> */
     private array $store = [];
 
-    public function get(string $key): string|false
+    public function get($key): mixed
     {
         return $this->store[$key] ?? false;
     }
 
-    public function setEx(string $key, int $expiration, string $value): bool
+    public function setEx($key, $expiration, $value): bool
     {
         $this->store[$key] = $value;
         return true;
     }
 
-    public function set(string $key, mixed $value, mixed ...$options): bool|string
+    public function set($key, $value, $options = null): bool|string
     {
+        $normalizedOptions = is_array($options) ? $options : [];
+
         if (
-            is_array($options[0] ?? null)
-            && (in_array('NX', $options[0], true) || in_array('nx', $options[0], true))
+            $normalizedOptions !== []
+            && (in_array('NX', $normalizedOptions, true) || in_array('nx', $normalizedOptions, true))
             && array_key_exists($key, $this->store)
         ) {
             return false;
@@ -45,7 +47,7 @@ class FakeRedisConnection
         return true;
     }
 
-    public function del(string $key): int
+    public function del($key, ...$other_keys): int
     {
         if (!array_key_exists($key, $this->store)) {
             return 0;
@@ -55,14 +57,14 @@ class FakeRedisConnection
     }
 }
 
-class FakeMemcachedConnection
+class FakeMemcachedConnection extends \Memcached
 {
     /** @var array<string,string> */
     private array $store = [];
 
     private int $resultCode = \Memcached::RES_NOTFOUND;
 
-    public function get(string $key): mixed
+    public function get(string $key, ?callable $cache_cb = null, int $get_flags = 0): mixed
     {
         if (!array_key_exists($key, $this->store)) {
             $this->resultCode = \Memcached::RES_NOTFOUND;
@@ -94,7 +96,7 @@ class FakeMemcachedConnection
         return true;
     }
 
-    public function delete(string $key): bool
+    public function delete(string $key, int $time = 0): bool
     {
         unset($this->store[$key]);
         return true;
@@ -1035,7 +1037,11 @@ class UnitTests extends TestCase
         $GLOBALS['_starcache_test_blog_id'] = 2;
 
         StarQueryCache::cachedWpdbQuery($sql); // MISS on site 2 — sc_sql_2_* is cold
-        $this->assertSame(2, $wpdb->callCount, 'Same SQL on a different site must be a cache miss due to different blog-ID key prefix.');
+        $this->assertSame(
+            2,
+            $wpdb->callCount,
+            'Same SQL on a different site must be a cache miss due to different blog-ID key prefix.'
+        );
     }
 
     public function testQueryCacheVersionGroupQueriesDefaultsToOne(): void
@@ -1099,7 +1105,10 @@ class UnitTests extends TestCase
 
         StarAssetMinifier::processStyles();
         $this->assertStringContainsString('.min.css', $styles->registered[$assetHandle]->src);
-        $this->assertStringContainsString('/cache/starcache/assets/' . $blogId . '/', $styles->registered[$assetHandle]->src);
+        $this->assertStringContainsString(
+            '/cache/starcache/assets/' . $blogId . '/',
+            $styles->registered[$assetHandle]->src
+        );
     }
 
     // =========================================================================

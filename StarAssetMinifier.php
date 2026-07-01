@@ -230,7 +230,11 @@ class StarAssetMinifier
         try {
             $tmpPath = $destPath . '.tmp.' . bin2hex(random_bytes(8));
         } catch (\Exception $e) {
-            error_log('[StarCache] random_bytes() failed for asset temp name, falling back to uniqid(): ' . $e->getMessage());
+            error_log(
+                '[StarCache] random_bytes() failed for asset temp name, '
+                . 'falling back to uniqid(): '
+                . $e->getMessage()
+            );
             $tmpPath = $destPath . '.tmp.' . uniqid('', true);
         }
         if (file_put_contents($tmpPath, $minified, LOCK_EX) === false) {
@@ -325,12 +329,7 @@ class StarAssetMinifier
     private static function processAsset(\WP_Dependencies $deps, string $handle, string $type): void
     {
         $registered = $deps->registered[$handle] ?? null;
-        if (
-            !is_object($registered)
-            || !property_exists($registered, 'src')
-            || !is_string($registered->src)
-            || $registered->src === ''
-        ) {
+        if ($registered === null || $registered->src === '') {
             return;
         }
 

@@ -414,11 +414,18 @@ if (!class_exists('Memcached')) {
     }
 }
 
+if (!class_exists('Redis')) {
+    // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
+    class Redis
+    {
+    }
+}
+
 if (!class_exists('WP_Post')) {
     // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
     class WP_Post
     {
-        public int    $ID        = 0;
+        public int $ID = 0;
         public string $post_type = 'post';
 
         public function __construct(int $id = 0, string $postType = 'post')
@@ -434,9 +441,9 @@ if (!class_exists('WP_Query')) {
     class WP_Query
     {
         /** @var array<string, mixed> */
-        public array $query_vars  = [];
-        public int   $found_posts = 0;
-        public int   $max_num_pages = 0;
+        public array $query_vars = [];
+        public int $found_posts = 0;
+        public int $max_num_pages = 0;
 
         /** @param array<string, mixed> $vars */
         public function __construct(array $vars = [])
@@ -459,11 +466,23 @@ if (!class_exists('WP_Query')) {
 // ---------------------------------------------------------------------------
 // $wpdb stub — minimal in-memory query shim for StarQueryCache tests
 // ---------------------------------------------------------------------------
-if (!isset($GLOBALS['wpdb'])) {
+if (!class_exists('wpdb')) {
     // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
-    $GLOBALS['wpdb'] = new class () {
+    class wpdb
+    {
+        public string $options = 'wp_options';
         public string $last_error = '';
-        public int    $callCount  = 0;
+        public int $callCount = 0;
+
+        public function esc_like(string $text): string
+        {
+            return $text;
+        }
+
+        public function prepare(string $query, mixed ...$args): string
+        {
+            return $query;
+        }
 
         /** @return mixed[]|null */
         public function get_results(string $sql, string $output = 'ARRAY_A'): ?array
@@ -471,7 +490,11 @@ if (!isset($GLOBALS['wpdb'])) {
             $this->callCount++;
             return [];
         }
-    };
+    }
+}
+
+if (!isset($GLOBALS['wpdb'])) {
+    $GLOBALS['wpdb'] = new wpdb();
 }
 
 // ---------------------------------------------------------------------------

@@ -100,6 +100,40 @@ if (!class_exists('WP_Error')) {
     }
 }
 
+if (!class_exists('Predis\Client')) {
+    class PredisClientStub
+    {
+        public function __construct(array $parameters = [], array $options = []) {}
+        public function ping(): string { return 'PONG'; }
+        public function get(string $key): string|false { return false; }
+        public function set(string $key, mixed $value, mixed ...$options): bool|string { return true; }
+        public function setex(string $key, int $ttl, string $value): bool|string { return true; }
+        public function del(string $key): int { return 1; }
+        public function flushdb(): bool|string { return true; }
+        public function disconnect(): void {}
+        public function close(): void {}
+    }
+
+    class_alias(PredisClientStub::class, 'Predis\Client');
+}
+
+if (!class_exists('wpdb')) {
+    class wpdb
+    {
+        public string $options = 'wp_options';
+        public string $last_error = '';
+
+        public function esc_like(string $text): string { return $text; }
+        public function prepare(string $query, mixed ...$args): string { return $query; }
+
+        /** @return list<string> */
+        public function get_col(string $query): array { return []; }
+
+        /** @return list<array<string,mixed>>|null */
+        public function get_results(string $query, string $output = 'ARRAY_A'): ?array { return []; }
+    }
+}
+
 if (!class_exists('Redis')) {
     class Redis
     {
@@ -311,6 +345,7 @@ if (!function_exists('restore_current_blog')) {
     function restore_current_blog(): true { return true; }
 }
 if (!function_exists('is_wp_error')) {
+    /** @phpstan-assert-if-true WP_Error $thing */
     function is_wp_error(mixed $thing): bool { return $thing instanceof WP_Error; }
 }
 if (!function_exists('is_front_page')) {
