@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace StarCache;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 use Exception;
 
 /**
@@ -143,7 +147,8 @@ class StarPageCache
             return $html;
         }
 
-        $ttl     = (int) apply_filters('starcache_page_ttl', self::TTL_PAGE);
+        $filteredTtl = apply_filters('starcache_page_ttl', self::TTL_PAGE);
+        $ttl         = is_numeric($filteredTtl) ? (int) $filteredTtl : self::TTL_PAGE;
         $payload = ['html' => $html, 'headers' => $headers, 'time' => time()];
 
         StarCacheAdapter::set(self::$currentPageKey, $payload, $ttl, self::GROUP_PAGE);
@@ -163,13 +168,18 @@ class StarPageCache
     /**
      * Serve a previously cached page, replaying its safe headers.
      *
-     * @param array $cached  Payload stored by capturePageOutput().
+     * @param array<mixed,mixed> $cached  Payload stored by capturePageOutput().
      */
     private static function serveCachedPage(array $cached): void
     {
         if (!headers_sent()) {
-            foreach ($cached['headers'] ?? [] as $header) {
-                header($header);
+            $headers = $cached['headers'] ?? [];
+            if (is_array($headers)) {
+                foreach ($headers as $header) {
+                    if (is_string($header)) {
+                        header($header);
+                    }
+                }
             }
             // Response controller applies Cache-Control; tag header goes here
             StarResponseController::apply();
@@ -178,7 +188,8 @@ class StarPageCache
             // Override X-Cache to indicate a cache HIT
             header('X-Cache: HIT');
         }
-        echo $cached['html'] ?? '';
+        $html = $cached['html'] ?? '';
+        echo is_string($html) ? $html : '';
     }
 
     // -------------------------------------------------------------------------
@@ -205,7 +216,7 @@ class StarPageCache
         $key    = self::buildFragmentKey($name);
         $cached = StarCacheAdapter::get($key, self::GROUP_FRAG);
 
-        if ($cached !== false) {
+        if (is_string($cached)) {
             echo $cached;
             return true;
         }
@@ -385,10 +396,19 @@ class StarPageCache
             return;
         }
         $path        = ($parsed['path'] ?? '/');
-        $requestHost = $parsed['host'] ?? ($_SERVER['HTTP_HOST'] ?? 'localhost');
+        $requestHost = 'localhost';
+        if (array_key_exists('host', $parsed) && is_string($parsed['host']) && $parsed['host'] !== '') {
+            $requestHost = self::sanitizeHost($parsed['host']);
+        } else {
+            $requestHost = self::currentRequestHost();
+        }
 
         if (!empty($parsed['query'])) {
             $path .= '?' . $parsed['query'];
+        }
+
+        if ($requestHost === '') {
+            $requestHost = 'localhost';
         }
 
         $args = [
@@ -401,7 +421,7 @@ class StarPageCache
         $purgeUrl = 'http://' . $host . ':' . $port . $path;
         $response = wp_remote_request($purgeUrl, $args);
 
-        if (is_wp_error($response)) {
+        if ($response instanceof \WP_Error) {
             self::logMessage('Varnish PURGE failed for ' . $url . ': ' . $response->get_error_message());
         }
     }
@@ -450,8 +470,9 @@ class StarPageCache
     private static function currentUrl(): string
     {
         $scheme = (function_exists('is_ssl') && is_ssl()) ? 'https' : 'http';
-        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $uri    = $_SERVER['REQUEST_URI'] ?? '/';
+        $host   = self::currentRequestHost();
+        $uri    = self::currentRequestUri();
+
         return $scheme . '://' . $host . $uri;
     }
 
@@ -494,6 +515,86 @@ class StarPageCache
     private static function isVarnishEnabled(): bool
     {
         return (bool) apply_filters('starcache_varnish_enabled', defined('VARNISH_HOST'));
+    }
+
+    /**
+     * Return a safe host value for cache keys and PURGE headers.
+     */
+    private static function currentRequestHost(): string
+    {
+        if (array_key_exists('HTTP_HOST', $_SERVER) && is_string($_SERVER['HTTP_HOST'])) {
+            $host = self::sanitizeHost($_SERVER['HTTP_HOST']);
+            if ($host !== '') {
+                return $host;
+            }
+        }
+
+        if (function_exists('home_url')) {
+            $homeHost = wp_parse_url(home_url('/'), PHP_URL_HOST);
+            if (is_string($homeHost)) {
+                $homeHost = self::sanitizeHost($homeHost);
+                if ($homeHost !== '') {
+                    return $homeHost;
+                }
+            }
+        }
+
+        return 'localhost';
+    }
+
+    /**
+     * Return a safe request URI for cache keys.
+     */
+    private static function currentRequestUri(): string
+    {
+        if (array_key_exists('REQUEST_URI', $_SERVER) && is_string($_SERVER['REQUEST_URI'])) {
+            $uri = preg_replace('/[\x00-\x1F\x7F]/', '', $_SERVER['REQUEST_URI']) ?? '';
+            if ($uri !== '' && str_starts_with($uri, '/')) {
+                return $uri;
+            }
+        }
+
+        return '/';
+    }
+
+    /**
+     * Normalize a host/header value to a safe subset.
+     */
+    private static function sanitizeHost(string $host): string
+    {
+        $host = trim(preg_replace('/[\x00-\x1F\x7F]/', '', $host) ?? '');
+        if ($host === '' || strpbrk($host, "/\\?#@\t\n\r\0\x0B ") !== false) {
+            return '';
+        }
+
+        $parsedHost = wp_parse_url('http://' . $host, PHP_URL_HOST);
+        if (!is_string($parsedHost) || $parsedHost === '') {
+            return '';
+        }
+
+        $validatedHost = '';
+        $ipAddress     = filter_var($parsedHost, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_IPV6);
+        if ($ipAddress !== false) {
+            $validatedHost = str_contains($ipAddress, ':')
+                ? '[' . strtolower($ipAddress) . ']'
+                : strtolower($ipAddress);
+        } else {
+            $domain = filter_var($parsedHost, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME);
+            if ($domain === false) {
+                return '';
+            }
+            $validatedHost = strtolower($domain);
+        }
+
+        $parsedPort = wp_parse_url('http://' . $host, PHP_URL_PORT);
+        if ($parsedPort !== null) {
+            if (!is_int($parsedPort) || $parsedPort < 1 || $parsedPort > 65535) {
+                return '';
+            }
+            $validatedHost .= ':' . $parsedPort;
+        }
+
+        return $validatedHost;
     }
 
     /**

@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace StarCache;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 /**
  * StarResponseController — Response Header Manager
  *
@@ -101,7 +105,7 @@ class StarResponseController
         }
 
         // Gate 2: only GET and HEAD are cacheable
-        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        $method = self::requestMethod();
         if ($method !== 'GET' && $method !== 'HEAD') {
             self::sendNoCache();
             return;
@@ -157,7 +161,7 @@ class StarResponseController
         }
 
         // Only GET and HEAD
-        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        $method = self::requestMethod();
         if ($method !== 'GET' && $method !== 'HEAD') {
             return false;
         }
@@ -269,6 +273,14 @@ class StarResponseController
         header('Cache-Control: no-store, no-cache, must-revalidate');
         header('Pragma: no-cache');
         header('X-Cache: BYPASS');
+    }
+
+    private static function requestMethod(): string
+    {
+        if (!array_key_exists('REQUEST_METHOD', $_SERVER) || !is_string($_SERVER['REQUEST_METHOD'])) {
+            return 'GET';
+        }
+        return strtoupper($_SERVER['REQUEST_METHOD']);
     }
 
     /**

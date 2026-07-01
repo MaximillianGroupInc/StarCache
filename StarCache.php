@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace StarCache;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 use Exception;
 
 /**
@@ -126,8 +130,12 @@ class StarCache
      * @param  bool        $isStatic   True = long-term (1 year), false = 1 hour.
      * @return bool  True on success, false on failure.
      */
-    public function star_setCachedData(mixed $data, string $reference, ?string $userId = null, bool $isStatic = false): bool
-    {
+    public function star_setCachedData(
+        mixed $data,
+        string $reference,
+        ?string $userId = null,
+        bool $isStatic = false
+    ): bool {
         try {
             $key        = $this->buildKey($reference, $userId);
             $group      = $this->star_getUserGroup($reference, $userId);
@@ -320,7 +328,7 @@ class StarCache
 
         if (!$isStatic && $cacheKey) {
             global $wpdb;
-            if (!is_object($wpdb)) {
+            if (!$wpdb instanceof \wpdb) {
                 return;
             }
 
@@ -373,7 +381,11 @@ class StarCache
             $fresh         = $age < $soft;
             $isPastHardTtl = $age >= $hard;
 
-            return ['value' => $raw['value'], 'isFresh' => $fresh && !$isPastHardTtl, 'isPastHardTtl' => $isPastHardTtl];
+            return [
+                'value' => $raw['value'],
+                'isFresh' => $fresh && !$isPastHardTtl,
+                'isPastHardTtl' => $isPastHardTtl,
+            ];
         }
 
         return ['value' => $raw, 'isFresh' => true, 'isPastHardTtl' => false];
@@ -394,7 +406,8 @@ class StarCache
     private function resolveSoftTtl(int $hardTtl): int
     {
         $default = max(1, (int) floor($hardTtl * self::DEFAULT_SOFT_TTL_RATIO));
-        $softTtl = (int) apply_filters('starcache_remember_soft_ttl', $default, $hardTtl);
+        $filtered = apply_filters('starcache_remember_soft_ttl', $default, $hardTtl);
+        $softTtl  = is_numeric($filtered) ? (int) $filtered : $default;
         // Keep soft TTL valid even for very short hard TTLs.
         return max(1, min($softTtl, $hardTtl));
     }
@@ -404,7 +417,8 @@ class StarCache
      */
     private function waitForRememberRefresh(string $key, string $group): array
     {
-        $waitMs = (int) apply_filters('starcache_remember_lock_wait_ms', self::DEFAULT_REMEMBER_WAIT_MS);
+        $filtered = apply_filters('starcache_remember_lock_wait_ms', self::DEFAULT_REMEMBER_WAIT_MS);
+        $waitMs   = is_numeric($filtered) ? (int) $filtered : self::DEFAULT_REMEMBER_WAIT_MS;
         $waitMs = max(0, $waitMs);
         if ($waitMs <= 0) {
             return ['found' => false, 'value' => false];

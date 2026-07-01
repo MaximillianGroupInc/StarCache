@@ -28,7 +28,7 @@
     "phpstan/phpstan": "^2.0"
   },
   "scripts": {
-    "test": "./vendor/bin/phpunit --testdox tests/",
+    "test": "./vendor/bin/phpunit --configuration phpunit.xml --testdox",
     "lint": "./vendor/bin/phpcs --standard=phpcs.xml",
     "analyze": "./vendor/bin/phpstan analyse --configuration=phpstan.neon"
   },

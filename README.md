@@ -28,9 +28,11 @@ without manual plumbing.
 
 ## Installation (MU-Plugin)
 
-1. Copy **all PHP files** from this repository into `wp-content/mu-plugins/`.
-2. The plugin loads automatically – no activation required.
-3. If you are using Composer, add the package:
+1. Download the release package and extract the `starcache/` folder into `wp-content/mu-plugins/`.
+2. Move `wp-content/mu-plugins/starcache/starcache.php` to `wp-content/mu-plugins/starcache.php`.
+3. Keep the remaining StarCache class files inside `wp-content/mu-plugins/starcache/`.
+4. The plugin then loads automatically as an MU-plugin.
+5. If you are using Composer, add the package:
 
 ```bash
 composer require maximilliangroupinc/starcache
@@ -209,6 +211,14 @@ invalidate via version bumping plus edge/cache-layer purge flows instead of back
 composer install
 ./vendor/bin/phpunit
 ```
+
+---
+
+## Lifecycle behavior
+
+- **Activation (regular plugin):** no schema or data mutation.
+- **Deactivation (regular plugin):** clears pending `starcache_build_asset` cron events and generated asset-cache files for the current site, or for every site during network deactivation.
+- **Uninstall:** keeps user data by default and removes only StarCache-generated asset-cache files plus pending StarCache cron events, including multisite network cleanup when supported by WordPress.
 
 ---
 
