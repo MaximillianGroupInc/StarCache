@@ -562,16 +562,39 @@ class StarPageCache
      */
     private static function sanitizeHost(string $host): string
     {
-        $host = strtolower(trim(preg_replace('/[\x00-\x1F\x7F]/', '', $host) ?? ''));
-        if ($host === '') {
+        $host = trim(preg_replace('/[\x00-\x1F\x7F]/', '', $host) ?? '');
+        if ($host === '' || strpbrk($host, "/\\?#@\t\n\r\0\x0B ") !== false) {
             return '';
         }
 
-        if (!preg_match('/\A[a-z0-9.\-:\[\]]+\z/', $host)) {
+        $parsedHost = wp_parse_url('http://' . $host, PHP_URL_HOST);
+        if (!is_string($parsedHost) || $parsedHost === '') {
             return '';
         }
 
-        return $host;
+        $validatedHost = '';
+        $ipAddress     = filter_var($parsedHost, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_IPV6);
+        if ($ipAddress !== false) {
+            $validatedHost = str_contains($ipAddress, ':')
+                ? '[' . strtolower($ipAddress) . ']'
+                : strtolower($ipAddress);
+        } else {
+            $domain = filter_var($parsedHost, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME);
+            if ($domain === false) {
+                return '';
+            }
+            $validatedHost = strtolower($domain);
+        }
+
+        $parsedPort = wp_parse_url('http://' . $host, PHP_URL_PORT);
+        if ($parsedPort !== null) {
+            if (!is_int($parsedPort) || $parsedPort < 1 || $parsedPort > 65535) {
+                return '';
+            }
+            $validatedHost .= ':' . $parsedPort;
+        }
+
+        return $validatedHost;
     }
 
     /**

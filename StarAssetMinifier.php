@@ -392,6 +392,7 @@ class StarAssetMinifier
         }
 
         // Strip query string
+        // Avoid strtok() here because it relies on shared internal state.
         $parts = explode('?', $url, 2);
         $url = $parts[0];
 

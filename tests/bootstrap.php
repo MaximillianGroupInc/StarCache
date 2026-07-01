@@ -418,6 +418,25 @@ if (!class_exists('Redis')) {
     // phpcs:ignore PSR1.Classes.ClassDeclaration.MissingNamespace
     class Redis
     {
+        public function get($key): mixed
+        {
+            return false;
+        }
+
+        public function setEx($key, $expiration, $value): bool
+        {
+            return true;
+        }
+
+        public function set($key, $value, $options = null): bool|string
+        {
+            return true;
+        }
+
+        public function del($key, ...$other_keys): int
+        {
+            return 0;
+        }
     }
 }
 

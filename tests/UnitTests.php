@@ -830,7 +830,6 @@ class UnitTests extends TestCase
             return ['computed' => $callCount];
         };
         $first = $cache->star_remember('remember_lock_contention', $callback, 2);
-        $first = $cache->star_remember('remember_lock_contention', $callback, 2);
 
         $keyMethod = new \ReflectionMethod(StarCache::class, 'buildKey');
         $keyMethod->setAccessible(true);
