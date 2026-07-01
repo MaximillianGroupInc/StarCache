@@ -198,25 +198,26 @@ Dev-only: `phpunit/phpunit ^10.0`, `squizlabs/php_codesniffer ^3.9`,
   credentials are read from `wp-config.php` constants, not from the
   database.
 
-### REQ-004 — Context dimension hardening (NOT YET IMPLEMENTED — see Open items)
+### REQ-004 — Context dimension hardening
 
-The `starcache_context_dimensions` filter is currently an open extension
-point: any plugin can inject arbitrary dimensions with unbounded count
-and length. `TECHNICAL-SPECIFICATION.md` documents this as a cache
-poisoning / DoS surface (key explosion, memory exhaustion, forced cache
-bypass) and specifies required mitigations (max 7 dimensions, max 64
-chars/value, `[a-z0-9_:-]` charset, dimension registration model). As of
-this draft, the code has not been verified to enforce these limits — see
-`OQ-003`.
+`TECHNICAL-SPECIFICATION.md` lists context-dimension limits as
+"HARDENING REQUIRED," but verification against the current code
+(`StarCacheContext.php`) confirms this is already fully implemented,
+including test coverage in `tests/UnitTests.php`:
 
-### OQ-003 — Verify context-dimension hardening is actually implemented
+- Maximum dimension count: 7 (`MAX_DIMENSIONS`). Excess dimensions are
+  dropped and logged, not silently accepted.
+- Maximum value length: 64 characters (`MAX_DIMENSION_VALUE_LENGTH`).
+  Longer values are truncated before hashing.
+- Allowed characters: `[a-z0-9_:-]` only; non-matching values are
+  sanitized, not rejected.
+- Dimension registration model: custom dimensions must be registered via
+  `StarCacheContext::register()` before they can be set. Unregistered
+  dimensions injected via the `starcache_context_dimensions` filter are
+  ignored.
 
-`TECHNICAL-SPECIFICATION.md` marks context dimension constraints,
-adapter discipline, key-builder separation, and reference-length guards
-as "HARDENING REQUIRED" / "REQUIRED" items on a pre-v3.0 checklist. This
-draft spec does not assert these are implemented — verify against the
-current code before promoting this spec past `draft`, and update this
-section (and `REQ-004`) with the actual state.
+`TECHNICAL-SPECIFICATION.md`'s hardening checklist table is stale on
+this point and should be updated separately to mark the item complete.
 
 ## Current state
 
@@ -244,10 +245,6 @@ section (and `REQ-004`) with the actual state.
 - `OQ-001` — no governance snapshot populated yet for this repo.
 - `OQ-002` — content-state boundary with future SPARXSTAR consumers is
   unresolved (no consumer exists today).
-- `OQ-003` — verify whether context-dimension hardening, adapter
-  discipline, and key-builder separation (all marked "REQUIRED" in
-  `TECHNICAL-SPECIFICATION.md`'s hardening checklist) are implemented in
-  the current code.
 - `OQ-004` — Varnish PURGE authentication: if Varnish requires a secret
   for PURGE requests, where does that secret live? Not resolved in
   `wp-config.php` or the options table today.
