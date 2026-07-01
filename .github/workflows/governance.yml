@@ -14,7 +14,7 @@ jobs:
   # can be aware of the canonical/ratified state relative to the local
   # draft in docs/starcache-tech-spec.md.
   pull-spec:
-    uses: Starisian-Technologies/sparxstar-product-specification-registry/.github/workflows/fetch-specs.yml@v1.0.0
+    uses: Starisian-Technologies/sparxstar-product-specification-registry/.github/workflows/fetch-specs.yml@v1
     with:
       specs: "starcache"
       agent-ref: main
